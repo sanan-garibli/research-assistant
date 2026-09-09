@@ -1,0 +1,23 @@
+# --- ai/ package dependencies ---
+httpx==0.28.1
+pydantic==2.13.5
+numpy==2.4.6
+
+# --- LLM / embedding provider SDKs (ai/providers/*) ---
+anthropic==1.4.0
+openai==3.10.0
+google-genai==2.22.0
+
+# --- Web search provider (only needed if WEB_SEARCH_PROVIDER=duckduckgo) ---
+duckduckgo-search==8.1.1
+
+# --- researcher/ SE layer ---
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
+tenacity==9.1.4
+
+# --- testing ---
+pytest==9.1.1
+pytest-asyncio==1.4.0
+pytest-cov==7.1.0
+respx==0.23.1
