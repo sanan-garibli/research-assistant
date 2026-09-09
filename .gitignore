@@ -1,0 +1,28 @@
+# Environment / secrets
+.env
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+.venv/
+venv/
+
+# Data / logs
+*.db
+*.sqlite3
+*.log
+
+# Caches
+.cache/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
