@@ -59,10 +59,13 @@ async def _main(limit: int) -> None:
     questions = json.loads(_QUESTIONS_FILE.read_text())["questions"][:limit]
     texts = [q["text"] for q in questions]
 
-    # Fresh Researcher instances per phase so no state (e.g. the semaphore)
-    # leaks between the sequential and concurrent timing runs.
-    sequential = await run_sequential(build_researcher(settings), texts)
-    concurrent = await run_concurrent(build_researcher(settings), texts)
+    # Fresh Researcher instances per phase so no state (e.g. the semaphore or
+    # the shared HTTP client) leaks between the sequential and concurrent
+    # timing runs; each phase closes its own client when it finishes.
+    async with build_researcher(settings) as researcher:
+        sequential = await run_sequential(researcher, texts)
+    async with build_researcher(settings) as researcher:
+        concurrent = await run_concurrent(researcher, texts)
 
     print(render_table(len(texts), sequential, concurrent))
 
