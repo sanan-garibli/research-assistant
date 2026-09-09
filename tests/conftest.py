@@ -86,3 +86,49 @@ def sample_sources() -> list[Source]:
             origin="wikipedia",
         ),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Fixtures for the student-built `researcher/` SE layer (additive; the
+# fixtures above are the graded ai/ contract and must not be modified).
+# ---------------------------------------------------------------------------
+
+from researcher.config import Settings
+from researcher.storage.cache_store import InMemoryCacheBackend
+
+
+@pytest.fixture
+def in_memory_cache_backend() -> InMemoryCacheBackend:
+    return InMemoryCacheBackend()
+
+
+@pytest.fixture
+def cache_dir(tmp_path):
+    d = tmp_path / "cache"
+    d.mkdir()
+    return d
+
+
+@pytest.fixture
+def settings_factory(cache_dir):
+    def _make(**overrides) -> Settings:
+        defaults = dict(
+            cache_dir=cache_dir,
+            cache_ttl_seconds=86400,
+            per_source_timeout_seconds=5.0,
+            max_sources_per_query=3,
+            max_concurrent_fetches=5,
+            max_question_length=500,
+            retry_max_attempts=3,
+            retry_backoff_seconds=0.01,
+            tavily_api_key="test-key",
+        )
+        defaults.update(overrides)
+        return Settings(**defaults)
+
+    return _make
+
+
+@pytest.fixture
+def settings(settings_factory) -> Settings:
+    return settings_factory()
