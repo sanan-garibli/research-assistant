@@ -24,6 +24,11 @@ _ALL_ORIGINS = ("wikipedia", "arxiv", "web")
 _ORIGIN_FETCHERS = {"wikipedia": "fetch_wikipedia", "arxiv": "fetch_arxiv", "web": "fetch_web"}
 
 
+# Wikimedia's User-Agent policy rejects generic library agents: the default
+# `python-httpx/x.y.z` gets a bare 403 from the Wikipedia API. Identify the app.
+_USER_AGENT = "research-assistant/0.1 (https://github.com/sanan-garibli/research-assistant)"
+
+
 @functools.lru_cache(maxsize=1)
 def _shared_ssl_context() -> ssl.SSLContext:
     """Build the trust store once per process.
@@ -60,7 +65,13 @@ class ResearchOrchestrator:
         self._settings = settings
         self._semaphore = asyncio.Semaphore(settings.max_concurrent_fetches)
         self._client = httpx.AsyncClient(
-            timeout=settings.per_source_timeout_seconds, verify=_shared_ssl_context()
+            timeout=settings.per_source_timeout_seconds,
+            verify=_shared_ssl_context(),
+            headers={"User-Agent": _USER_AGENT},
+            # arXiv's API is reached over http:// and 301s to https://; httpx
+            # does not follow redirects unless asked, and surfaces the 3xx as
+            # an error instead.
+            follow_redirects=True,
         )
 
     async def __aenter__(self) -> "ResearchOrchestrator":
