@@ -22,6 +22,16 @@ class Researcher:
         self._ai = ai_service
         self._settings = settings
 
+    async def __aenter__(self) -> "Researcher":
+        return self
+
+    async def __aexit__(self, *exc_info: object) -> None:
+        await self.aclose()
+
+    async def aclose(self) -> None:
+        """Release orchestrator-owned resources (the shared HTTP client)."""
+        await self._orchestrator.aclose()
+
     async def ask(
         self, question: str, *, origins: set[str] | None = None, use_cache: bool = True
     ) -> ResearchSession:

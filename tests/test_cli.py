@@ -32,6 +32,16 @@ class FakeResearcher:
         self._session = session or _session()
         self._raises = raises
         self.calls: list[dict] = []
+        self.closed = False
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc_info):
+        await self.aclose()
+
+    async def aclose(self):
+        self.closed = True
 
     async def ask(self, question, *, origins=None, use_cache=True):
         self.calls.append({"question": question, "origins": origins, "use_cache": use_cache})

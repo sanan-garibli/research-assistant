@@ -145,3 +145,40 @@ async def test_cache_hit_skips_underlying_fetch(settings_factory):
     assert ai.calls == []
     assert outcomes[0].from_cache is True
     assert len(sources) == 1
+
+
+@pytest.mark.asyncio
+async def test_http_client_is_built_once_and_reused_across_calls(settings_factory):
+    """Building an httpx.AsyncClient costs ~0.4s (SSL trust store), so a
+    per-question client would tax every query and discard connection pooling."""
+    ai = FakeAIService({"wikipedia": {"result": [_source("wikipedia")]}})
+    orch, _ = _orchestrator(ai, settings_factory, per_source_timeout_seconds=5.0)
+
+    seen = []
+
+    async def _capture(query, *, max_results=3, client=None):
+        seen.append(client)
+        return [_source("wikipedia")]
+
+    orch._ai.fetch_wikipedia = _capture
+    async with orch:
+        for _ in range(3):
+            await orch.gather_sources("q", origins={"wikipedia"}, use_cache=False)
+
+    assert len(seen) == 3
+    assert all(c is seen[0] for c in seen)
+    assert seen[0] is not None
+
+
+@pytest.mark.asyncio
+async def test_aclose_releases_the_client_and_is_idempotent(settings_factory):
+    ai = FakeAIService({"wikipedia": {"result": [_source("wikipedia")]}})
+    orch, _ = _orchestrator(ai, settings_factory, per_source_timeout_seconds=5.0)
+
+    await orch.gather_sources("q", origins={"wikipedia"}, use_cache=False)
+    assert orch._client.is_closed is False
+
+    await orch.aclose()
+    await orch.aclose()  # no-op, must not raise
+
+    assert orch._client.is_closed

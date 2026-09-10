@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import pytest
+import pytest_asyncio
 
 from ai.providers.base import ProviderError
 from ai.schemas import Source
@@ -20,8 +21,8 @@ def _source(origin: str) -> Source:
     return Source(title=f"{origin} title", url=f"https://example.com/{origin}", snippet="s", origin=origin)
 
 
-@pytest.fixture
-def wired_researcher(monkeypatch, settings_factory, fake_llm):
+@pytest_asyncio.fixture
+async def wired_researcher(monkeypatch, settings_factory, fake_llm):
     """A Researcher wired to fakes for wikipedia/arxiv/web + a FakeLLM synthesizer."""
     settings = settings_factory(per_source_timeout_seconds=5.0)
 
@@ -45,7 +46,8 @@ def wired_researcher(monkeypatch, settings_factory, fake_llm):
     ai_service = AIService(settings)
     cache = SourceCache(InMemoryCacheBackend(), ttl_seconds=settings.cache_ttl_seconds)
     orchestrator = ResearchOrchestrator(ai_service, cache, settings)
-    return Researcher(orchestrator, ai_service, settings)
+    async with Researcher(orchestrator, ai_service, settings) as researcher:
+        yield researcher
 
 
 @pytest.mark.asyncio
@@ -89,10 +91,10 @@ async def test_ask_raises_when_all_sources_fail(monkeypatch, settings_factory, f
     ai_service = AIService(settings_factory(retry_max_attempts=1, per_source_timeout_seconds=5.0))
     cache = SourceCache(InMemoryCacheBackend(), ttl_seconds=settings.cache_ttl_seconds)
     orchestrator = ResearchOrchestrator(ai_service, cache, settings)
-    researcher = Researcher(orchestrator, ai_service, settings)
 
-    with pytest.raises(NoSourcesAvailableError):
-        await researcher.ask("q", origins={"wikipedia"}, use_cache=False)
+    async with Researcher(orchestrator, ai_service, settings) as researcher:
+        with pytest.raises(NoSourcesAvailableError):
+            await researcher.ask("q", origins={"wikipedia"}, use_cache=False)
 
 
 @pytest.mark.asyncio
@@ -117,9 +119,9 @@ async def test_ask_partial_failure_notes_degradation_in_answer(
     ai_service = AIService(settings)
     cache = SourceCache(InMemoryCacheBackend(), ttl_seconds=settings.cache_ttl_seconds)
     orchestrator = ResearchOrchestrator(ai_service, cache, settings)
-    researcher = Researcher(orchestrator, ai_service, settings)
 
-    session = await researcher.ask("q", origins={"wikipedia", "arxiv"}, use_cache=False)
+    async with Researcher(orchestrator, ai_service, settings) as researcher:
+        session = await researcher.ask("q", origins={"wikipedia", "arxiv"}, use_cache=False)
 
     assert session.degraded is True
     assert "arxiv" in session.answer.answer

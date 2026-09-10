@@ -71,6 +71,12 @@ async def _cmd_demo(args: argparse.Namespace, researcher) -> int:
     return 0
 
 
+async def _dispatch(args: argparse.Namespace, researcher) -> int:
+    """Run the selected subcommand, releasing the researcher's resources after."""
+    async with researcher:
+        return await args.func(args, researcher)
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -80,7 +86,7 @@ def main(argv: list[str] | None = None) -> int:
     researcher = build_researcher(settings)
 
     try:
-        return asyncio.run(args.func(args, researcher))
+        return asyncio.run(_dispatch(args, researcher))
     except ResearcherError as e:
         print(f"Error: {e}", file=sys.stderr)
         return 1

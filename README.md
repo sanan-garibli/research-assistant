@@ -181,7 +181,7 @@ pytest --cov=researcher --cov-report=term-missing
                                                         synthesize)
 ```
 
-One shared `httpx.AsyncClient` is opened per `ask` call and passed into every `ai.*` fetch. Each source's cache check happens before the semaphore is acquired, so cache hits never contend with live fetches for the concurrency budget.
+One shared `httpx.AsyncClient` is owned by the orchestrator for its whole lifetime and passed into every `ai.*` fetch, so connections are pooled across questions, not just within one. It is built at composition time over a process-wide SSL context — constructing the trust store costs ~0.35s, which would otherwise be charged to every `ask` call — and released by `Researcher.aclose()` (or `async with researcher:`, which the CLI and benchmark use). Each source's cache check happens before the semaphore is acquired, so cache hits never contend with live fetches for the concurrency budget.
 
 ## Limitations
 
