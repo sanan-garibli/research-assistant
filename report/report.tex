@@ -6,7 +6,7 @@
 % Built from templates/REPORT_TEMPLATE.tex. Compile with pdfLaTeX
 % (Overleaf works out of the box). Remaining red [TODO: ...] markers are
 % items that could not be filled from the repository alone (team name,
-% extra members, live benchmark numbers, Docker image size).
+% extra members, Docker image size).
 % =====================================================================
 
 \documentclass[11pt,a4paper]{article}
@@ -35,7 +35,10 @@
 \usepackage[margin=2.2cm,headheight=15pt]{geometry}
 \usepackage[T1]{fontenc}
 \usepackage[utf8]{inputenc}
-\usepackage[final,protrusion=true,expansion=false]{microtype}
+% microtype improves line breaking, but it is not present in every MiKTeX
+% install; compile without it rather than failing outright.
+\IfFileExists{microtype.sty}
+  {\usepackage[final,protrusion=true,expansion=false]{microtype}}{}
 \usepackage{amsmath,amssymb}
 \usepackage{graphicx}
 \usepackage{booktabs}
@@ -45,17 +48,32 @@
 \usepackage{enumitem}
 \usepackage[parfill]{parskip}
 \usepackage{listings}
-\usepackage[most]{tcolorbox}
-\usepackage{titlesec}
+% Base tcolorbox is enough for the two boxes below; the [most] option drags in
+% tikzfill, which is not in every MiKTeX install.
+\usepackage{tcolorbox}
+% titlesec and lastpage are cosmetic; guard them so a minimal TeX install can
+% still build this report (Overleaf and a full MiKTeX have both).
+\IfFileExists{titlesec.sty}{\usepackage{titlesec}}{}
 \usepackage{fancyhdr}
-\usepackage{lastpage}
+\IfFileExists{lastpage.sty}
+  {\usepackage{lastpage}\newcommand{\pagemark}{Page \thepage\ of \pageref{LastPage}}}
+  {\newcommand{\pagemark}{Page \thepage}}
 \usepackage{tikz}
 \usetikzlibrary{shapes.geometric,arrows.meta,positioning,fit,backgrounds}
 \usepackage[hidelinks]{hyperref}
 
+% Nothing may stick out into the right margin: a word that does not fit moves
+% to the next line instead. We accept loose inter-word spacing as the price
+% (\sloppy + a generous \emergencystretch), and silence the resulting
+% underfull-line chatter.
 \emergencystretch=3em
 \hbadness=10000
-\hfuzz=2pt
+\hfuzz=0pt
+\sloppy
+
+% Code is never hyphenated: a break inside "orchestrator.py" reads as part of
+% the identifier. Long identifiers are instead split at an existing "/" by
+% writing them as two \texttt groups where a line would otherwise overflow.
 
 \hypersetup{
   colorlinks=true,
@@ -75,10 +93,26 @@
 \definecolor{probeframe}{HTML}{B45309}
 \definecolor{ok}{HTML}{166534}
 
-\titleformat{\section}
-  {\Large\bfseries\color{accent}}{\thesection.}{0.6em}{}
-\titleformat{\subsection}
-  {\large\bfseries\color{accent}}{\thesubsection}{0.5em}{}
+% \makeatletter must be in effect *before* the conditional is tokenised, or the
+% internal \@startsection / \@plus / \z@ in the fallback branch are read as
+% undefined control sequences.
+\makeatletter
+\IfFileExists{titlesec.sty}{%
+  \titleformat{\section}
+    {\Large\bfseries\color{accent}}{\thesection.}{0.6em}{}
+  \titleformat{\subsection}
+    {\large\bfseries\color{accent}}{\thesubsection}{0.5em}{}
+}{%
+  % Without titlesec, keep the accent-coloured headings via plain LaTeX so the
+  % report looks the same on a minimal TeX install.
+  \renewcommand\section{\@startsection{section}{1}{\z@}%
+    {-3.5ex \@plus -1ex \@minus -.2ex}{2.3ex \@plus .2ex}%
+    {\normalfont\Large\bfseries\color{accent}}}%
+  \renewcommand\subsection{\@startsection{subsection}{2}{\z@}%
+    {-3.25ex \@plus -1ex \@minus -.2ex}{1.5ex \@plus .2ex}%
+    {\normalfont\large\bfseries\color{accent}}}%
+}
+\makeatother
 
 \let\ph\phh
 
@@ -121,7 +155,7 @@
 \fancyhead[L]{\small\textit{\coursecode\ -- Final Report -- \teamname}}
 \fancyhead[R]{\small\textit{\semester}}
 \fancyfoot[L]{\small\textit{\institution}}
-\fancyfoot[R]{\small Page \thepage\ of \pageref{LastPage}}
+\fancyfoot[R]{\small \pagemark}
 \renewcommand{\headrulewidth}{0.4pt}
 \renewcommand{\footrulewidth}{0.4pt}
 
@@ -155,7 +189,7 @@
 \textbf{Required.} Exactly one paragraph (5--7 sentences). What you built, the headline concurrency speedup you measured, your headline robustness story, and the single most surprising thing the team learned.
 \end{deliverbox}
 
-We built the software-engineering layer around a provided research-assistant AI module: a user asks a question from the command line, the system fans out to Wikipedia, arXiv and a web-search API concurrently, and an LLM synthesises one answer with numbered citations. The concurrency design is \texttt{asyncio.gather} with a per-source \texttt{asyncio.timeout}, a process-wide \texttt{Semaphore(5)} and one long-lived \texttt{httpx.AsyncClient}, so a single question costs the \emph{slowest} source rather than the sum of the three; the unit benchmark with three 0.2\,s sources completes in under 0.4\,s instead of 0.6\,s, and the live five-question benchmark gave a \TODO{$x.x\times$ speedup (\texttt{python scripts/bench.py --limit 5}; see \S\ref{sec:concurrency})}. The headline robustness story is graceful degradation: when one source raises or times out, the other two still produce an answer and the failure is appended as a visible note, while three simultaneous failures surface as a single \texttt{NoSourcesAvailableError} and exit code~1 instead of a stack trace. The most surprising lesson came from running the system behind a corporate TLS-intercepting proxy: every source failed, the CLI reported the failure correctly, but the logs contained \emph{no} root cause, because the orchestrator records a failed source's exception text in a dataclass field without logging it and the retry wrapper only logs successes. If we started over we would log every retry attempt and every degraded source at \texttt{WARNING} from day one, and we would cache synthesised answers as well as source lists.
+We built the software-engineering layer around a provided research-assistant AI module: a user asks a question from the command line, the system fans out to Wikipedia, arXiv and a web-search API concurrently, and an LLM synthesises one answer with numbered citations. The concurrency design is \texttt{asyncio.gather} with a per-source \texttt{asyncio.timeout}, a process-wide \texttt{Semaphore(5)} and one long-lived \texttt{httpx.AsyncClient}, so a single question costs the \emph{slowest} source rather than the sum of the three; the unit benchmark with three 0.2\,s sources completes in under 0.4\,s instead of 0.6\,s, and on the live five-question benchmark the concurrent run took 11.7\,s against 46.8\,s sequentially, a $4.0\times$ speedup (\S\ref{sec:concurrency}). The headline robustness story is graceful degradation: when one source raises or times out, the other two still produce an answer and the failure is appended as a visible note, while three simultaneous failures surface as a single \texttt{NoSourcesAvailableError} and exit code~1 instead of a stack trace. The most surprising lesson came from running the system behind a corporate TLS-intercepting proxy: every source failed, the CLI reported the failure correctly, but the logs contained \emph{no} root cause, because the orchestrator records a failed source's exception text in a dataclass field without logging it and the retry wrapper only logs successes. If we started over we would log every retry attempt and every degraded source at \texttt{WARNING} from day one, and we would cache synthesised answers as well as source lists.
 
 % ===== TABLE OF CONTENTS =============================================
 \tableofcontents
@@ -174,7 +208,7 @@ A researcher types a natural-language question and wants one trustworthy, cited 
 
 \textbf{Inputs} are a question string (trimmed, non-empty, at most \texttt{MAX\_QUESTION\_LENGTH}=500 characters), an optional subset of sources (\texttt{--sources wiki,arxiv,web}), and a \texttt{--no-cache} switch. \textbf{Outputs} are a \texttt{ResearchSession}: the \texttt{AnswerWithCitations} returned by the synthesiser plus one \texttt{SourceOutcome} per requested source (result count, elapsed seconds, cache-hit flag, error text). The CLI renders this as the answer, a numbered reference list with origin and URL, and a per-source timing line. \textbf{Entry points} are two sub-commands of \texttt{python -m researcher}: \texttt{ask "<question>"} and \texttt{demo [--limit N]}, which runs the five questions in \texttt{data/research\_questions.json}. There is no HTTP server; the topic specification does not require one and the Dockerfile's default command is the demo.
 
-\textbf{Provider stack:} LLM synthesis via Anthropic (\texttt{LLM\_PROVIDER=anthropic}, \texttt{LLM\_MODEL=claude-sonnet-5} in \texttt{.env.example}; OpenAI and Gemini are selectable by environment variable only), web search via Tavily (Serper and DuckDuckGo selectable), Wikipedia and arXiv over their keyless public APIs. No embedding or USDA provider is used in this topic. We tightened the spec in two places: the semaphore bounds \emph{all} in-flight fetches across concurrent questions, not just within one, and the cache lookup happens \emph{before} the semaphore is acquired so cache hits never consume the concurrency budget. We loosened it in one: only source lists are cached, not synthesised answers, because LLM output is not deterministic and the spec's caching requirement is keyed by \texttt{(source, query)}. We explicitly did not build a PostgreSQL backend (the spec allows filesystem JSON) or an HTTP API.
+\textbf{Provider stack:} LLM synthesis via Anthropic (\texttt{LLM\_PROVIDER=anthropic}; our \texttt{.env} sets \texttt{LLM\_MODEL=claude-opus-5}, which every live number in this report uses, while \texttt{.env.example} ships \texttt{claude-sonnet-5}; OpenAI and Gemini are selectable by environment variable only), web search via Tavily (Serper and DuckDuckGo selectable), Wikipedia and arXiv over their keyless public APIs. No embedding or USDA provider is used in this topic. We tightened the spec in two places: the semaphore bounds \emph{all} in-flight fetches across concurrent questions, not just within one, and the cache lookup happens \emph{before} the semaphore is acquired so cache hits never consume the concurrency budget. We loosened it in one: only source lists are cached, not synthesised answers, because LLM output is not deterministic and the spec's caching requirement is keyed by \texttt{(source, query)}. We explicitly did not build a PostgreSQL backend (the spec allows filesystem JSON) or an HTTP API.
 
 \subsection{Provider choice and the AI module contract}
 
@@ -182,7 +216,7 @@ A researcher types a natural-language question and wants one trustworthy, cited 
 \textbf{Required.} Name the LLM, embedding, and any auxiliary provider you used, and the model identifiers. State what \texttt{ai/} functions you call. \emph{Confirm in one sentence that you did not modify the public interface of the provided \texttt{ai/} package.}
 \end{deliverbox}
 
-We call exactly four public functions of the provided package, and only from one file, \texttt{researcher/services/ai\_service.py}: \texttt{ai.sources.fetch\_wikipedia}, \texttt{ai.sources.fetch\_arxiv}, \texttt{ai.sources.fetch\_web} and \texttt{ai.synthesizer.synthesize}. We also import the schemas \texttt{Source}, \texttt{Citation}, \texttt{AnswerWithCitations} and the exception \texttt{ProviderError}. The LLM is Anthropic \texttt{claude-sonnet-5} (configurable), the web-search provider is Tavily, and no embedding model is involved. \textbf{We did not modify any file under \texttt{ai/}, and the provided \texttt{tests/test\_ai\_smoke.py} passes unmodified (16/16).}
+We call exactly four public functions of the provided package, and only from one file, \texttt{researcher/services/ai\_service.py}: \texttt{ai.sources.fetch\_wikipedia}, \texttt{ai.sources.fetch\_arxiv}, \texttt{ai.sources.fetch\_web} and \texttt{ai.synthesizer.synthesize}. We also import the schemas \texttt{Source}, \texttt{Citation}, \texttt{AnswerWithCitations} and the exception \texttt{ProviderError}. The LLM is Anthropic \texttt{claude-opus-5} (configurable via \texttt{LLM\_MODEL}), the web-search provider is Tavily, and no embedding model is involved. \textbf{We did not modify any file under \texttt{ai/}, and the provided \texttt{tests/test\_ai\_smoke.py} passes unmodified (16/16).}
 
 Defence against malformed model responses is layered. The provided synthesiser already drops citation indices that are out of range, so a hallucinated \texttt{[7]} with three sources never becomes a dangling reference. Our wrapper retries \texttt{ProviderError} and \texttt{httpx} errors up to three times with exponential backoff but deliberately does \emph{not} retry \texttt{ValueError} (an empty question or empty source list is a caller bug, not a transient fault). Semantically wrong but well-formed data cannot enter the system silently: every \texttt{Source} is a frozen pydantic model that rejects an unknown \texttt{origin}, an empty title or URL, or extra fields, and cached payloads are re-validated with \texttt{Source.model\_validate} on every read. What we do \emph{not} check is the factual content of the answer text; if the model writes a plausible paragraph with valid citations that misrepresents a snippet, the system passes it through. That is a limitation we name in \S\ref{sec:limits}.
 
@@ -196,9 +230,13 @@ Defence against malformed model responses is layered. The provided synthesiser a
 \end{deliverbox}
 
 \begin{center}
+% Every node has a fixed text width so its label wraps inside the box, and the
+% whole picture is scaled to the text block so it cannot reach into the margins.
+\resizebox{\textwidth}{!}{%
 \begin{tikzpicture}[
-  node distance=7mm and 6mm,
-  box/.style={draw,rounded corners=2pt,minimum width=3.4cm,minimum height=0.85cm,align=center,font=\small},
+  node distance=7mm and 11mm,
+  box/.style={draw,rounded corners=2pt,text width=3.0cm,align=center,
+              minimum height=1.0cm,font=\scriptsize,inner sep=3pt},
   entry/.style={box,fill=ok!12,draw=ok,thick},
   boot/.style={box,fill=black!4,draw=black!50,densely dashed},
   core/.style={box,fill=accent!12,draw=accent,thick},
@@ -208,48 +246,58 @@ Defence against malformed model responses is layered. The provided synthesiser a
   ext/.style={box,fill=black!4,draw=black!50,dashed},
   arrow/.style={-Stealth,thick},
   wire/.style={-Stealth,densely dotted,thick,black!55},
-  lbl/.style={font=\scriptsize\itshape,text=black!60,align=center}
+  lbl/.style={font=\tiny\itshape,text=black!65,align=center,
+              fill=white,inner sep=1pt}
 ]
-  % --- entry points and composition root -------------------------------
+  % --- row 1: entry points, then the composition root ------------------
+  % Every label is broken by hand at a "/" so nothing hyphenates or overflows.
   \node[entry] (cli) {\texttt{cli.py}\\\texttt{ask} / \texttt{demo}};
-  \node[entry,right=of cli] (bench) {\texttt{scripts/bench.py}\\sequential vs \texttt{gather}};
+  \node[entry,right=of cli] (bench) {\texttt{scripts/}\\\texttt{bench.py}};
   \node[boot,right=of bench] (boot) {\texttt{bootstrap.py}\\composition root};
-  \node[boot,right=of boot,minimum width=2.6cm] (cfg) {\texttt{config.py}\\\texttt{Settings} from \texttt{.env}};
+  \node[boot,right=of boot] (cfg) {\texttt{config.py}\\\texttt{Settings}};
 
-  % --- SE layer --------------------------------------------------------
-  \node[core,below=of cli] (fac) {\texttt{core/researcher.py}\\Researcher facade\\{\scriptsize validate $\cdot$ NoSourcesAvailableError $\cdot$ degradation note}};
-  \node[core,right=of fac] (orch) {\texttt{concurrency/orchestrator.py}\\gather $\cdot$ timeout $\cdot$ Semaphore(5)\\owns the shared \texttt{AsyncClient}};
-  \node[svc,right=of orch] (cache) {\texttt{services/cache.py}\\\texttt{SourceCache} (TTL)};
+  % --- row 2: facade, orchestrator, cache ------------------------------
+  \node[core,below=of cli] (fac) {\texttt{core/}\\\texttt{researcher.py}\\facade};
+  \node[core,right=of fac] (orch) {\texttt{concurrency/}\\\texttt{orchestrator.py}\\gather, timeout,\\\texttt{Semaphore(5)}};
+  \node[svc,right=of orch] (cache) {\texttt{services/}\\\texttt{cache.py}\\TTL cache};
 
-  \node[svc,below=of orch] (ais) {\texttt{services/ai\_service.py}\\tenacity retries $\cdot$ timing logs\\\emph{only module importing} \texttt{ai.*}};
-  \node[store,below=of cache] (cs) {\texttt{storage/cache\_store.py}\\\texttt{CacheBackend} ABC\\FS JSON / in-memory};
+  % --- row 3: AI service and the cache backend -------------------------
+  \node[svc,below=of orch] (ais) {\texttt{services/}\\\texttt{ai\_service.py}\\retries, timing};
+  \node[store,below=of cache] (cs) {\texttt{storage/}\\\texttt{cache\_store.py}\\backend ABC};
 
-  % --- provided package and the outside world --------------------------
-  \node[aibox,below=of ais] (ai) {\textbf{provided \texttt{ai/}} (unmodified)\\\texttt{fetch\_wikipedia} $\cdot$ \texttt{fetch\_arxiv} $\cdot$ \texttt{fetch\_web} $\cdot$ \texttt{synthesize}};
-  \node[ext,right=of ai] (net) {Wikipedia $\cdot$ arXiv\\Tavily $\cdot$ LLM provider};
-
-  % --- construction (dotted) -------------------------------------------
-  \draw[wire] (cli.north) -- ++(0,3mm) -| node[lbl,above,pos=0.25] {\texttt{build\_researcher()}} (boot.north);
-  \draw[wire] (bench.north) -- ++(0,3mm);
-  \draw[arrow] (boot) -- node[lbl,above] {reads} (cfg);
+  % --- row 4: provided package and the outside world -------------------
+  \node[aibox,below=of ais] (ai) {provided \texttt{ai/}\\(unmodified)};
+  \node[ext,right=of ai] (net) {Wikipedia, arXiv,\\Tavily, LLM};
 
   % --- runtime calls (solid) -------------------------------------------
-  \draw[arrow] (cli) -- node[lbl,left] {\texttt{ask()}} (fac);
-  \draw[arrow] (bench.south) -- ++(0,-2.5mm) -| node[lbl,above,pos=0.25] {\texttt{ask()}} (fac.north east);
-  \draw[arrow] (fac) -- node[lbl,above] {\texttt{gather\_sources()}} (orch);
-  \draw[arrow] (fac.south) |- node[lbl,below,pos=0.75] {\texttt{synthesize()} via \texttt{to\_thread}} (ais.west);
-  \draw[arrow] (orch) -- node[lbl,above] {\texttt{get()} before semaphore\\\texttt{set()} after fetch} (cache);
-  \draw[arrow] (orch) -- node[lbl,right] {\texttt{fetch\_*} (shared client)} (ais);
-  \draw[arrow] (cache) -- node[lbl,right] {read / write / delete} (cs);
-  \draw[arrow] (ais) -- node[lbl,right] {AI-module boundary} (ai);
+  % Labels sit on the arrow itself (midway, white-filled) so they cannot
+  % collide with a box border.
+  % pos keeps these two labels off the dashed enclosure line they would
+  % otherwise sit on.
+  \draw[arrow] (cli) -- node[lbl,pos=0.25] {\texttt{ask()}} (fac);
+  \draw[arrow] (bench.south) -- (fac.north east);
+  % The two horizontal arrows inside a row are too short to carry a label
+  % without touching a box; the paragraph below names those calls instead.
+  \draw[arrow] (fac) -- (orch);
+  \draw[arrow] (fac.south) |- node[lbl,pos=0.72] {\texttt{synthesize()}} (ais.west);
+  \draw[arrow] (orch) -- (cache);
+  \draw[arrow] (orch) -- node[lbl,midway] {\texttt{fetch\_*}} (ais);
+  \draw[arrow] (cache) -- (cs);
+  \draw[arrow] (ais) -- node[lbl,pos=0.78] {AI boundary} (ai);
   \draw[arrow,dashed] (ai) -- (net);
 
+  % --- construction (dotted) -------------------------------------------
+  \draw[arrow] (boot) -- node[lbl,midway] {reads} (cfg);
+  \draw[wire] (boot) -- (cache);
+
   \begin{scope}[on background layer]
-    \node[fit=(fac)(orch)(cache)(ais)(cs),draw=accent!40,dashed,rounded corners=4pt,inner sep=6pt,label={[lbl,anchor=south east]north east:\texttt{researcher/} -- our SE layer}] (se) {};
+    \node[fit=(fac)(orch)(cache)(ais)(cs),draw=accent!40,dashed,
+          rounded corners=4pt,inner sep=5pt] (se) {};
   \end{scope}
-  \draw[wire] (boot.south) -- node[lbl,right] {wires all five objects} (boot.south |- se.north);
-\end{tikzpicture}
+\end{tikzpicture}}
 \end{center}
+
+\noindent{\small\textit{Dashed enclosure: \texttt{researcher/}, our SE layer.}}
 
 \textbf{Interpreting the diagram.} Solid arrows are runtime calls; dotted arrows are construction. Both entry points call \texttt{bootstrap.build\_researcher()}, which reads \texttt{config.py} and wires backend $\to$ cache $\to$ AI service $\to$ orchestrator $\to$ facade; neither entry point constructs a domain object itself. Exactly one arrow crosses the AI-module boundary: \texttt{ai\_service.py} $\to$ \texttt{ai/}. The storage boundary is crossed only by \texttt{services/cache.py} $\to$ \texttt{storage/cache\_store.py}, in one direction; the orchestrator never touches a file. \texttt{models.py} (\texttt{SourceOutcome}, \texttt{ResearchSession}) is the typed payload carried along every arrow inside \texttt{researcher/}. Swapping Anthropic for OpenAI changes \emph{zero} files: it is \texttt{LLM\_PROVIDER=openai} plus a key, because the provided \texttt{ai.providers.factory} does the dispatch. Swapping the whole \texttt{ai/} package for a different one would change one file.
 
@@ -324,20 +372,21 @@ The bottleneck the design targets is the sum of three latencies per question. Se
 \end{deliverbox}
 
 \begin{center}\small
-\begin{tabular}{lcccc}
+\begin{tabularx}{\textwidth}{@{}>{\RaggedRight\arraybackslash}X c r r r@{}}
 \toprule
 \textbf{Workload} & $N$ & \textbf{Sequential (s)} & \textbf{Concurrent (s)} & \textbf{Speedup} \\
 \midrule
-5 sample questions, \texttt{for} loop vs.\ \texttt{gather} (live APIs) & 5 & \TODO{s} & \TODO{s} & \TODO{$\times$} \\
-1 question, 3 fetches of 0.2\,s each (offline unit benchmark) & 3 & 0.60 (sum) & $<0.40$ (measured) & $\geq 1.5\times$ \\
+5 sample questions, \texttt{for} loop vs.\ \texttt{gather} (live APIs, run 2) & 5 & 46.8 & 11.7 & $4.0\times$ \\
+Same workload, run 1 (arXiv hit its 10\,s timeout once, sequential phase) & 5 & 71.6 & 11.8 & $6.1\times$ \\
+1 question, 3 fetches of 0.2\,s each (offline unit benchmark) & 3 & 0.60 (sum) & $<0.40$ & $\geq 1.5\times$ \\
 1 question, 1 fetch stalls 5\,s, timeout 0.2\,s (offline) & 2 & 5.05 & $<1.00$ & $>5\times$ \\
 \bottomrule
-\end{tabular}
+\end{tabularx}
 \end{center}
 
-\textbf{Setup.} Machine: Windows 11 Enterprise laptop, Python 3.11.7 in the project virtualenv; the Docker image bakes Python 3.12. Caches are bypassed structurally, not just cleared: \texttt{scripts/bench.py} calls \texttt{researcher.ask(q, use\_cache=False)} in both phases and builds a fresh \texttt{Researcher} (fresh semaphore, fresh HTTP client) per phase so no pooled connections leak from the sequential run into the concurrent one. Command line: \texttt{python scripts/bench.py --limit 5}. The two offline rows come from \texttt{tests/test\_orchestrator.py} (\texttt{test\_sources\_fetched\_in\_parallel\_not\_sequentially} and \texttt{test\_slow\_source\_times\_out\_without\_blocking\_fast\_sibling}) and run on every \texttt{pytest} invocation.
+\textbf{Setup.} Machine: Windows 11 Enterprise laptop, Python 3.14.3 in the project virtualenv (the Docker image bakes Python 3.12); synthesis with \texttt{claude-opus-5}, web search via Tavily; both runs on 12 September 2026, back to back, over a network without TLS interception. Caches are bypassed structurally, not just cleared: \texttt{scripts/bench.py} calls \texttt{researcher.ask(q, use\_cache=False)} in both phases and builds a fresh \texttt{Researcher} (fresh semaphore, fresh HTTP client) per phase so no pooled connections leak from the sequential run into the concurrent one. Command line: \texttt{python scripts/bench.py --limit 5}. The two offline rows come from \texttt{tests/test\_orchestrator.py} (\texttt{test\_sources\_fetched\_in\_parallel\_not\_sequentially} and \texttt{test\_slow\_source\_times\_out\_without\_blocking\_fast\_sibling}) and run on every \texttt{pytest} invocation.
 
-\textbf{Discussion.} The live row is pending because the development machine used for this report sits behind a TLS-intercepting proxy: every HTTPS call to Wikipedia, Tavily and Anthropic failed with a certificate-revocation error (\texttt{CRYPT\_E\_NO\_REVOCATION\_CHECK}), so the benchmark was left to be reproduced on an unrestricted machine with the exact command above and pasted here and into the README. Independently of the live number we do not expect the theoretical $5\times$ on the five-question workload: the fetch phase parallelises well, but every question still pays one synchronous LLM call of a few seconds, those calls overlap only up to the thread pool and the provider's own rate limit, and the semaphore of 5 admits fewer than two questions' worth of fetches at once. Raising \texttt{MAX\_CONCURRENT\_FETCHES} and caching synthesised answers are the two levers that would push the curve further.
+\textbf{Discussion.} Run 2 is the headline because every source answered in both phases. Run 1 is kept because it shows the robustness argument in numbers: in its sequential phase arXiv stalled until the 10\,s per-source timeout on the first question and Wikipedia answered in 2.4--3.6\,s per call (0.1--0.4\,s in the concurrent phase), which inflated the sequential total to 71.6\,s, while the concurrent phase came in at 11.8\,s, the same as run 2. Where the time goes explains the $4.0\times$. In run 2 the five synthesis calls took 6.5--10.2\,s each and account for 42.7\,s of the 46.8\,s sequential total (91\,\%). Concurrently, all 15 fetches, including the Wikipedia retries described below, finished within about 2\,s despite \texttt{Semaphore(5)}, and the five LLM calls then overlapped completely (5.7--10.0\,s each, no 429), so the wall clock is set by the \emph{slowest} question rather than by the semaphore or the thread pool. The achievable speedup is therefore $\sum_q t_q / \max_q t_q$, not $N$, and with synthesis latencies this uneven it stays below $5\times$. We had expected the semaphore and the \texttt{to\_thread} pool to be the limiters; at $N=5$ neither was, and the remaining lever is caching synthesised answers. The live run also exposed a data-quality bug that no offline test could: the provided \texttt{fetch\_wikipedia} uses Wikipedia's prefix title search, so all five full-sentence questions returned \emph{zero} Wikipedia sources. \texttt{AIService} now retries with shorter keyword phrases (\S\ref{sec:robustness}); in both runs Wikipedia matched every question on the first or second term (e.g.\ \texttt{"2008 financial crisis"}, \texttt{"fusion energy"}), and answers are now built from 7--9 sources instead of at most 6. The TLS-intercepting proxy that blocked the first attempt at this benchmark (\S\ref{sec:robustness}) was not in the path this time.
 
 \subsection{Rate limit \& politeness}
 
@@ -356,7 +405,7 @@ The strategy is a \textbf{request budget plus backoff}, not a token bucket: the 
 \textbf{Required.} Describe your service-layer wrapper around \texttt{ai.*} calls: retries, timeouts, structured logging, input validation.
 \end{deliverbox}
 
-\texttt{AIService} in \texttt{researcher/services/ai\_service.py} is the only code that imports \texttt{ai.*}. \textbf{Retries:} a tenacity policy built from settings, \texttt{stop\_after\_attempt(RETRY\_MAX\_ATTEMPTS=3)}, \texttt{wait\_exponential(multiplier=RETRY\_BACKOFF\_SECONDS=0.5, min=0.5, max=8)}, so waits are 0.5\,s then 1\,s before the third try; it retries only \texttt{ProviderError}, \texttt{httpx.HTTPError} and \texttt{httpx.TimeoutException}, re-raises the last exception, and never retries \texttt{ValueError}. \textbf{Timeouts:} two layers. The shared \texttt{httpx.AsyncClient} carries \texttt{timeout=PER\_SOURCE\_TIMEOUT\_SECONDS} (10\,s) per socket operation, and the orchestrator wraps the \emph{whole} retrying fetch for one source in \texttt{asyncio.timeout(10)}, so the 10\,s is a hard budget covering all retries for that source; a timeout is converted to a \texttt{RuntimeError("<origin> timed out after 10s")} that the gather turns into a \texttt{SourceOutcome.error}. \textbf{Logging:} stdlib \texttt{logging} configured once from \texttt{LOG\_LEVEL}; the wrapper logs \texttt{fetch origin=... query=... results=N elapsed=...s} at \texttt{INFO}, result titles at \texttt{DEBUG}, \texttt{synthesize question=... n\_sources=N elapsed=...s} at \texttt{INFO}; the orchestrator logs \texttt{cache hit} at \texttt{INFO} and \texttt{timeout origin=... after=...s} at \texttt{WARNING}; \texttt{httpx}/\texttt{httpcore} are quietened to \texttt{WARNING}. API keys are declared with \texttt{repr=False} and \texttt{test\_fetch\_logs\_never\_include\_api\_key} asserts they never appear in log output. \textbf{Validation:} before calling, the facade has already trimmed the question, rejected empty or over-length input and normalised the source set; after the call, every returned \texttt{Source} is a validated frozen model and an empty overall result raises \texttt{NoSourcesAvailableError} before the LLM is ever invoked.
+\texttt{AIService} in \texttt{researcher/services/ai\_service.py} is the only code that imports \texttt{ai.*}. \textbf{Retries:} a tenacity policy built from settings, \texttt{stop\_after\_attempt(RETRY\_MAX\_ATTEMPTS=3)}, \texttt{wait\_exponential(multiplier=RETRY\_BACKOFF\_SECONDS=0.5, min=0.5, max=8)}, so waits are 0.5\,s then 1\,s before the third try; it retries only \texttt{ProviderError}, \texttt{httpx.HTTPError} and \texttt{httpx.TimeoutException}, re-raises the last exception, and never retries \texttt{ValueError}. \textbf{Timeouts:} two layers. The shared \texttt{httpx.AsyncClient} carries \texttt{timeout=PER\_SOURCE\_TIMEOUT\_SECONDS} (10\,s) per socket operation, and the orchestrator wraps the \emph{whole} retrying fetch for one source in \texttt{asyncio.timeout(10)}, so the 10\,s is a hard budget covering all retries for that source; a timeout is converted to a \texttt{RuntimeError("<origin> timed out after 10s")} that the gather turns into a \texttt{SourceOutcome.error}. \textbf{Logging:} stdlib \texttt{logging} configured once from \texttt{LOG\_LEVEL}; the wrapper logs \texttt{fetch origin=... query=... results=N elapsed=...s} at \texttt{INFO}, result titles at \texttt{DEBUG}, \texttt{synthesize question=... n\_sources=N elapsed=...s} at \texttt{INFO}; the orchestrator logs \texttt{cache hit} at \texttt{INFO} and \texttt{timeout origin=... after=...s} at \texttt{WARNING}; \texttt{httpx}/\texttt{httpcore} are quietened to \texttt{WARNING}. API keys are declared with \texttt{repr=False} and \texttt{test\_fetch\_logs\_never\_include\_api\_key} asserts they never appear in log output. \textbf{Validation:} before calling, the facade has already trimmed the question, rejected empty or over-length input and normalised the source set; after the call, every returned \texttt{Source} is a validated frozen model and an empty overall result raises \texttt{NoSourcesAvailableError} before the LLM is ever invoked. \textbf{Query shaping for Wikipedia:} the provided \texttt{fetch\_wikipedia} matches article titles by prefix, so the wrapper does not pass it the raw question. \texttt{services/search\_terms.py} strips English stopwords and builds keyword windows of at most three words, longest first, capped at 8; \texttt{AIService.fetch\_wikipedia} tries them in order, each under the full retry policy, returns the first non-empty result and logs the matching term at \texttt{INFO}. An exception is never swallowed to try the next term, so a Wikipedia outage still degrades the source as before. All attempts share one semaphore slot and the same 10\,s budget; live, the extra title search cost 0.1--2.7\,s.
 
 \textbf{Walk-through: Wikipedia returns a 500 mid-request.} \texttt{fetch\_wikipedia} calls \texttt{raise\_for\_status()}, wraps the \texttt{HTTPStatusError} in \texttt{ProviderError}, and returns it to \texttt{AIService.\_retrying\_fetch}; tenacity sleeps 0.5\,s and retries, then 1\,s and retries; if the third attempt also fails the \texttt{ProviderError} propagates out of the semaphore and timeout blocks into \texttt{gather(return\_exceptions=True)}, which records it as \texttt{SourceOutcome(origin="wikipedia", error="Wikipedia search failed: ...")}. arXiv and web are unaffected. The facade synthesises from the two remaining sources and appends \texttt{Note: wikipedia unavailable (...)} to the answer; the CLI prints it and exits 0. A 429 follows the identical path. A connection reset is an \texttt{httpx.RemoteProtocolError}, also retryable, same path. Valid JSON that contradicts the schema (say a result without a URL) is filtered by the provider adapter or rejected by \texttt{Source}'s validators with a \texttt{ValidationError}; that is \emph{not} in the retry list, so it propagates once and becomes a source error rather than being retried pointlessly.
 
@@ -381,7 +430,7 @@ energy research?': ['wikipedia', 'arxiv', 'web']
 13:47:34,036 WARNING researcher.concurrency.orchestrator: timeout origin=arxiv after=0.3s
 \end{lstlisting}
 
-In the real TLS incident, however, the log at \texttt{INFO} was \textbf{empty}. We expected to see the certificate error; we saw nothing, because (a) \texttt{AIService} logs a fetch only after it succeeds, so three failed attempts produce zero lines, and (b) \texttt{gather\_sources} stores \texttt{str(result)} in \texttt{SourceOutcome.error} but never logs it, and \texttt{NoSourcesAvailableError} carries only the origin names, not the messages. The log did \emph{not} give us enough to diagnose the incident without running code again: we had to write a probe script that called the fetchers directly and unwrapped \texttt{\_\_cause\_\_} to find the revocation error. The test surfaced a real design gap, diagnosability of degraded sources, and two concrete fixes are queued: log the exception at \texttt{WARNING} in the \texttt{isinstance(result, BaseException)} branch of \texttt{gather\_sources}, and pass \texttt{before\_sleep=before\_sleep\_log(logger, WARNING)} to the tenacity policy so each retry is visible. Two earlier incidents of the same family were fixed during development and are visible in the code: Wikipedia returned 403 to the default User-Agent (fixed with an explicit agent string) and arXiv's \texttt{http://} endpoint 301-redirected to \texttt{https://}, which \texttt{httpx} surfaces as an error unless \texttt{follow\_redirects=True}.
+In the real TLS incident, however, the log at \texttt{INFO} was \textbf{empty}. We expected to see the certificate error; we saw nothing, because (a) \texttt{AIService} logs a fetch only after it succeeds, so three failed attempts produce zero lines, and (b) \texttt{gather\_sources} stores \texttt{str(result)} in \texttt{SourceOutcome.error} but never logs it, and \texttt{NoSourcesAvailableError} carries only the origin names, not the messages. The log did \emph{not} give us enough to diagnose the incident without running code again: we had to write a probe script that called the fetchers directly and unwrapped \texttt{\_\_cause\_\_} to find the revocation error. The test surfaced a real design gap, diagnosability of degraded sources, and two concrete fixes are queued: log the exception at \texttt{WARNING} in the \texttt{isinstance(result, BaseException)} branch of \texttt{gather\_sources}, and pass \texttt{before\_sleep=before\_sleep\_log(logger, WARNING)} to the tenacity policy so each retry is visible. Two earlier incidents of the same family were fixed during development and are visible in the code: Wikipedia returned 403 to the default User-Agent (fixed with an explicit agent string) and arXiv's \texttt{http://} endpoint 301-redirected to \texttt{https://}, which \texttt{httpx} surfaces as an error unless \texttt{follow\_redirects=True}. A third surfaced while collecting the numbers in \S\ref{sec:concurrency}: redirecting the demo's stdout to a file on Windows encodes it with the legacy cp1252 code page, so the first answer containing CO\textsubscript{2} written with a subscript killed the run with a \texttt{UnicodeEncodeError} \emph{after} the LLM call had been paid for. \texttt{cli.main} now reconfigures stdout and stderr to UTF-8 before anything is printed, pinned by \texttt{test\_ask\_prints\_non\_latin1\_characters\_to\_a\_redirected\_stream}.
 
 \subsection{Input validation}
 
@@ -435,7 +484,7 @@ Everything in the file is \emph{derived}; the source of truth is the upstream AP
 
 We cache the \texttt{list[Source]} returned by each of the three fetchers, keyed by \texttt{(source, canonical query)} where canonicalisation lower-cases, trims and collapses whitespace so \texttt{"WHAT IS PHOTOSYNTHESIS?"} and \texttt{"what is photosynthesis?"} share a key (\texttt{test\_cache\_key\_same\_for\_equivalent\_queries}). Entries live in \texttt{CACHE\_DIR} (default \texttt{./.cache}, mounted volume-friendly in Docker) for \texttt{CACHE\_TTL\_SECONDS} (default 86\,400\,s). Invalidation is \textbf{lazy}: \texttt{get} compares \texttt{expires\_at} with the clock and treats stale entries as misses; there is no background sweeper, and \texttt{--no-cache} bypasses both read and write. The cache is consulted before the semaphore is acquired, so hits cost no concurrency budget, and hits are visible to the user as a \texttt{*} in the timing line and as \texttt{cache hit origin=... elapsed=...s} in the log.
 
-\textbf{Hit rate.} Structurally, running \texttt{python -m researcher demo} twice yields 0/15 hits on the first pass and 15/15 on the second (every \texttt{(source, question)} pair is repeated within the TTL), and a single repeated \texttt{ask} yields 3/3. \TODO{Paste the observed second-pass hit rate from a live demo run, e.g.\ ``15/15 (100\%)'', once the benchmark machine is available.} Values that can go stale are exactly the ones we cache: a Wikipedia summary edited after caching, or a new arXiv preprint appearing, will be missed for up to 24 hours. Because the LLM prompt is \emph{not} part of the key and answers are not cached, a prompt change in \texttt{ai/} never serves a stale answer. In production we would add the fetcher version and \texttt{MAX\_SOURCES\_PER\_QUERY} to the key so that changing either parameter invalidates naturally, and add a periodic sweep of expired files.
+\textbf{Hit rate.} Structurally, running \texttt{python -m researcher demo} twice yields 0/15 hits on the first pass and 15/15 on the second (every \texttt{(source, question)} pair is repeated within the TTL), and a single repeated \texttt{ask} yields 3/3. Observed on 12 September 2026 after clearing \texttt{.cache/}: pass 1 had 0/15 hits and took 48.3\,s; pass 2 had \textbf{15/15 (100\,\%)}, every source took 0.00--0.02\,s, and the pass took 47.5\,s. A perfect hit rate saved under a second because each of the five questions still pays its 6--10\,s synthesis call, which is the strongest argument for the answer cache proposed in \S\ref{sec:limits}. Values that can go stale are exactly the ones we cache: a Wikipedia summary edited after caching, or a new arXiv preprint appearing, will be missed for up to 24 hours. Because the LLM prompt is \emph{not} part of the key and answers are not cached, a prompt change in \texttt{ai/} never serves a stale answer. In production we would add the fetcher version and \texttt{MAX\_SOURCES\_PER\_QUERY} to the key so that changing either parameter invalidates naturally, and add a periodic sweep of expired files.
 
 % =====================================================================
 \section{Testing}\label{sec:testing}
@@ -451,9 +500,9 @@ We cache the \texttt{list[Source]} returned by each of the three fetchers, keyed
 \toprule
 \textbf{Suite} & \textbf{Coverage} \\
 \midrule
-\texttt{researcher/} (our SE layer; 402 statements, 22 missed) & 95\,\% \\
+\texttt{researcher/} (our SE layer; 432 statements, 22 missed) & 95\,\% \\
 Provided \texttt{ai/} smoke tests (\texttt{tests/test\_ai\_smoke.py}, unmodified) & \textcolor{ok}{\textbf{passing}}, 16/16 \\
-Whole suite & 66 passed in 1.9\,s, fully offline \\
+Whole suite & 83 passed in 2.1\,s, fully offline \\
 \bottomrule
 \end{tabular}
 \end{center}
@@ -474,7 +523,7 @@ Command: \texttt{pytest --cov=researcher --cov-report=term-missing}. The AI modu
   \item \textbf{Error path that caught a real bug:} \texttt{test\_ask\_raises\_when\_all\_sources\_fail} and \texttt{test\_ask\_partial\_failure\_notes\_degradation\_in\_answer} in \texttt{tests/test\_researcher.py}. After PR \#1 made the orchestrator own a long-lived \texttt{httpx.AsyncClient}, these were the tests that failed: they built a \texttt{Researcher} directly and never closed it, so the shared client leaked and the run reported unclosed resources (commit \texttt{af01142}, ``test case fixed''). They forced the \texttt{async with} lifecycle on every caller, which is exactly the contract the CLI and benchmark now rely on. Two further error-path tests pin decisions rather than bugs: \texttt{test\_fetch\_wikipedia\_does\_not\_retry\_on\_value\_error} (a caller bug must not be retried) and \texttt{test\_filesystem\_backend\_corrupted\_file\_is\_treated\_as\_miss} (a truncated cache file must not crash the run).
 \end{enumerate}
 
-\textbf{What we did not test, and wish we had.} We must be honest that the two upstream bugs found during development, Wikipedia's 403 on the default User-Agent and arXiv's 301 redirect, were found by running the demo, not by a test, and are still untested: they live in the network path of the provided fetchers, which our offline suite never exercises. A \texttt{respx} test of that path (a 429 with \texttt{Retry-After}, a 301, a 403) is the test we most wish we had written; next are a test that a degraded source's error text reaches the log (it currently does not, see \S\ref{sec:robustness}) and a subprocess test of \texttt{python -m researcher} inside the Docker image.
+\textbf{What we did not test, and wish we had.} We must be honest that the two upstream bugs found during development, Wikipedia's 403 on the default User-Agent and arXiv's 301 redirect, were found by running the demo, not by a test, and are still untested: they live in the network path of the provided fetchers, which our offline suite never exercises. A \texttt{respx} test of that path (a 429 with \texttt{Retry-After}, a 301, a 403) is the test we most wish we had written; next are a test that a degraded source's error text reaches the log (it currently does not, see \S\ref{sec:robustness}) and a subprocess test of \texttt{python -m researcher} inside the Docker image. The Wikipedia zero-result bug (\S\ref{sec:concurrency}) belongs to the same family: the fallback is now unit-tested against a fake that mimics prefix matching (\texttt{tests/test\_search\_terms.py}, \texttt{test\_fetch\_wikipedia\_falls\_back\_to\_shorter\_query\_until\_match}), but only a live run shows that the chosen terms match real titles.
 
 % =====================================================================
 \section{Deployment \& Reproducibility}\label{sec:deploy}
@@ -538,8 +587,8 @@ No key is hard-coded; \texttt{.env} is git-ignored and Docker-ignored, and \text
   \item \textbf{Worst design decision: silent degradation.} A failed source's error text is stored but not logged, and retries are invisible. On a busy day with one provider flapping, the operator sees only answers with ``unavailable'' notes and no log trail. Fix: \texttt{WARNING} log in the gather branch and tenacity's \texttt{before\_sleep\_log}; both are one-liners we would add first.
   \item \textbf{No 429-aware budget.} The semaphore is per process and the backoff ignores \texttt{Retry-After}. Two containers behind the same Tavily key can exhaust the 1000-request monthly tier without either noticing. Production would need a shared token bucket (Redis) and explicit 429 handling.
   \item \textbf{Cache is single-writer and never swept.} Filesystem JSON with lazy expiry is fine for one CLI process; concurrent multi-process writers could interleave a partial write with a read (we treat the resulting corrupt file as a miss, but the write is not atomic). A schema-drifted entry raises \texttt{ValidationError} and is reported as ``source unavailable'' until the TTL expires instead of being evicted. Productionising means atomic write-then-rename, a sweeper, and the fetcher version in the key.
-  \item \textbf{Synthesis is not cached and not concurrent-safe under load.} Every repeated question pays the LLM call, and concurrent \texttt{ask}s serialise on the default \texttt{to\_thread} pool and the provider's rate limit; this is the reason the five-question benchmark cannot approach $5\times$. Answer-level caching keyed by \texttt{(question, sorted source URLs, model id)} would make repeated demos near-instant.
-  \item \textbf{Not tested under load or against real HTTP.} We never ran more than 5 concurrent questions, never observed a real 429, and have no \texttt{respx} tests of the provided fetchers' network path. With another week we would add those tests, a \texttt{--json} output mode for the CLI, an OpenTelemetry span per external call, and the live benchmark on an unproxied machine.
+  \item \textbf{Synthesis is not cached.} Every repeated question pays the LLM call: a second demo pass with 15/15 source-cache hits was only 0.8\,s faster (48.3\,s $\to$ 47.5\,s). Under concurrency the five synthesis calls overlapped fully in our benchmark, so the slowest one sets the wall clock; its latency variance, not the semaphore, keeps the speedup at $4.0\times$ rather than $5\times$. Answer-level caching keyed by \texttt{(question, sorted source URLs, model id)} would make repeated demos near-instant.
+  \item \textbf{Retrieval quality is heuristic, and real HTTP is barely tested.} Wikipedia's prefix title search is fed keyword phrases built from an English stopword list tuned on the five sample questions: it can land on a broad article (\texttt{"language models long"} matches only \emph{Language model}), costs up to 8 extra title searches, and a question with no keywords left falls back to its raw text. arXiv ranking, which lives in the provided fetcher, is weak too (the CRISPR question returned particle-physics papers). We never ran more than 5 concurrent questions, never observed a real 429, and have no \texttt{respx} tests of the provided fetchers' network path. With another week we would add those tests, a \texttt{--json} output mode for the CLI, an OpenTelemetry span per external call, and enough repeated benchmark runs to put an error bar on the speedup.
 \end{itemize}
 
 % =====================================================================
@@ -556,7 +605,8 @@ No key is hard-coded; \texttt{.env} is git-ignored and Docker-ignored, and \text
 \midrule
 \texttt{researcher/} SE layer (config, models, services, core, concurrency, storage, CLI) & Claude Code (Anthropic) & Drafted from \texttt{TOPIC.md} and the project brief in the first feature commit; reviewed file by file. The explicit User-Agent and \texttt{follow\_redirects=True} were added by hand in a later commit after live runs returned a Wikipedia 403 and an arXiv 301. \\
 Shared \texttt{httpx.AsyncClient} refactor (PR \#1) & Claude Code & Proposed after we measured $\sim$0.35\,s per client construction; we reviewed, kept the \texttt{lru\_cache}d SSL context, and fixed the \texttt{tests/test\_researcher.py} fixtures that leaked the client. \\
-\texttt{tests/} (50 own tests) & Claude Code & Suggested the test matrix; we reviewed every assertion and kept the concurrency-window design. Provided \texttt{conftest.py} fixtures and \texttt{test\_ai\_smoke.py} are the course's and untouched; our fixtures were appended below them. \\
+\texttt{tests/} (67 own tests) & Claude Code & Suggested the test matrix; we reviewed every assertion and kept the concurrency-window design. Provided \texttt{conftest.py} fixtures and \texttt{test\_ai\_smoke.py} are the course's and untouched; our fixtures were appended below them. \\
+Wikipedia query fallback in \texttt{services/} \texttt{search\_terms.py} & Claude Code & Diagnosed from the live logs (0 Wikipedia sources for every question); candidate terms were checked against the live endpoint first, then tests and code were written test-first. \\
 \texttt{Dockerfile}, \texttt{requirements.txt}, \texttt{scripts/bench.py}, \texttt{README.md} & Claude Code & Drafted; we pinned versions, chose \texttt{slim}, and added the non-root user. \\
 This report and the defence slides & Claude Code & Drafted from the repository, the test run and the incident logs; reviewed and edited by the author. All claims about behaviour were checked against the code or a test. \\
 \bottomrule
@@ -583,7 +633,7 @@ The \texttt{ai/} package, sample data and smoke tests were provided by the cours
 \appendix
 % =====================================================================
 \section{Appendix --- Reproducing the benchmark}
-\textbf{Exact commands to reproduce the \S\ref{sec:concurrency} benchmark.} Anyone with the repo and a valid \texttt{.env} should be able to run the lines below and get numbers within 20\% of the ones in the table.
+\textbf{Exact commands to reproduce the \S\ref{sec:concurrency} benchmark.} Anyone with the repo and a valid \texttt{.env} should be able to run the lines below and get numbers of the same order as the ones in the table; LLM latency varies from call to call, and our own two sequential timings were 46.8\,s and 71.6\,s.
 
 \begin{lstlisting}[style=python,language=bash,numbers=none]
 $ git clone https://github.com/sanan-garibli/research-assistant && cd research-assistant
@@ -591,7 +641,7 @@ $ git checkout v1.0-final
 $ python -m venv .venv && .venv\Scripts\activate      # source .venv/bin/activate on macOS/Linux
 $ pip install -r requirements.txt
 $ cp .env.example .env                                 # fill in ANTHROPIC_API_KEY and TAVILY_API_KEY
-$ pytest --cov=researcher --cov-report=term-missing    # 66 passed, 95% coverage, offline
+$ pytest --cov=researcher --cov-report=term-missing    # 83 passed, 95% coverage, offline
 $ python scripts/bench.py --limit 5                    # prints the Markdown table (both phases use use_cache=False)
 
 # Same inside Docker:
@@ -605,7 +655,7 @@ $ python -m researcher demo && python -m researcher demo
 $ PER_SOURCE_TIMEOUT_SECONDS=0.3 python -m researcher ask "What is the current state of fusion energy research?" --no-cache
 \end{lstlisting}
 
-The benchmark must run on a machine whose outbound TLS is not intercepted by a corporate proxy; on such a machine every fetch fails with a certificate-revocation error and the run terminates with \texttt{NoSourcesAvailableError}.
+Run the benchmark on a network whose outbound TLS is not intercepted: behind the corporate proxy described in \S\ref{sec:robustness} every fetch failed with a certificate-revocation error and the run ended in \texttt{NoSourcesAvailableError}. Our two runs on 12 September 2026 gave $4.0\times$ (all sources healthy) and $6.1\times$ (one arXiv timeout in the sequential phase).
 
 \vspace{1em}\hrule\vspace{0.6em}
 \noindent\small\textit{End of report --- thank you for reading.}

@@ -5,8 +5,7 @@
 %
 % Built from templates/SLIDES_TEMPLATE.tex. Compile with pdfLaTeX.
 % A PowerPoint rendering of the same 11 slides is slides/slides.pptx.
-% Remaining red [TODO: ...] markers: team name, members B/C, live
-% benchmark numbers.
+% Remaining red [TODO: ...] markers: team name, members B/C.
 % =====================================================================
 
 \PassOptionsToPackage{dvipsnames}{xcolor}
@@ -135,7 +134,7 @@
 
   \vspace{0.4em}
   \textbf{Entry points:} \texttt{python -m researcher ask "..."} and \texttt{python -m researcher demo [--limit N]} (no HTTP server; Docker \texttt{CMD} runs the demo).\\
-  \textbf{Stack:} Anthropic \texttt{claude-sonnet-5} for synthesis, Tavily for web search, keyless Wikipedia + arXiv.
+  \textbf{Stack:} Anthropic \texttt{claude-opus-5} for synthesis, Tavily for web search, keyless Wikipedia + arXiv.
 \end{frame}
 
 % ========== SLIDE 3: ARCHITECTURE ====================================
@@ -224,8 +223,8 @@
     \toprule
     & \textbf{Sequential} & \textbf{Concurrent (sem=5)} \\
     \midrule
-    5 questions, live APIs, wall-clock (s) & \TODO{s} & \TODO{s} \\
-    Speedup & 1.0$\times$ & \TODO{$\times$} \\
+    5 questions, live APIs, wall-clock (s) & 46.8 & 11.7 \\
+    Speedup & 1.0$\times$ & $4.0\times$ \\
     1 question, 3 fetches $\times$ 0.2\,s (offline unit benchmark) & 0.60 (sum) & $<0.40$ (measured) \\
     1 question, one source stalls 5\,s, timeout 0.2\,s & 5.05 & $<1.00$ \\
     Provider 429s observed & 0 & 0 \\
@@ -235,10 +234,10 @@
 
   \vspace{0.3em}
   \textbf{Bottleneck named:} per question, $t_{wiki}+t_{arxiv}+t_{web}+t_{llm}$ becomes $\max(t_{wiki},t_{arxiv},t_{web})+t_{llm}$; the LLM call is now the dominant term.\\
-  \textbf{What doesn't reach $N\times$:} synthesis is uncached and serialises on the provider's rate limit; \texttt{Semaphore(5)} admits fewer than two questions' fetches at once (chosen for arXiv's $\sim$1\,req/s politeness and Tavily's 1000/month tier).
+  \textbf{Why $4.0\times$, not $5\times$:} synthesis is 91\,\% of sequential time; concurrently all five LLM calls overlap, so wall-clock $\approx$ the slowest question ($\sim$1--2\,s fetch + $\sim$10\,s LLM). \texttt{Semaphore(5)} was not the limiter: all 15 fetches finished in $\sim$2\,s.
 
   \vspace{0.2em}
-  {\footnotesize\textit{Live row pending: the report machine sat behind a TLS-intercepting proxy (\texttt{CRYPT\_E\_NO\_REVOCATION\_CHECK} on every host). Numbers reproduce from the README command on an unproxied machine.}}
+  {\footnotesize\textit{Run 12 Sep 2026: Python 3.14.3, \texttt{claude-opus-5}, Tavily. An earlier run the same day gave 71.6\,s vs 11.8\,s ($6.1\times$) because arXiv hit its 10\,s timeout in the sequential phase.}}
 \end{frame}
 
 % ========== SLIDE 6: ROBUSTNESS STORY ================================
@@ -295,9 +294,9 @@ $ docker run --env-file .env research-assistant \
   \column{0.55\textwidth}
   \textbf{Coverage \& shape}
   \begin{itemize}\setlength\itemsep{0.3em}
-    \item Total coverage on \texttt{researcher/}: \textbf{95\,\%} (402 stmts, 22 missed)
+    \item Total coverage on \texttt{researcher/}: \textbf{95\,\%} (432 stmts, 22 missed)
     \item Provided \texttt{ai/} smoke tests: \textcolor{ok}{\textbf{passing}}, 16/16 unmodified
-    \item Test count: \textbf{50 own + 16 smoke = 66}, 1.9\,s
+    \item Test count: \textbf{67 own + 16 smoke = 83}, 2.1\,s
     \item All tests offline; \texttt{ai.*} mocked at our own seam (\texttt{FakeAIService}, \texttt{monkeypatch}) plus the provided \texttt{FakeLLM}
     \item \texttt{mypy researcher}: 0 errors in our code
   \end{itemize}
@@ -324,7 +323,8 @@ $ docker run --env-file .env research-assistant \
     \item Silent degradation: a failed source's error is stored, not logged; retries are invisible. Worst decision we made.
     \item No 429-aware budget: semaphore is per process, backoff ignores \texttt{Retry-After}; two containers can burn one Tavily key.
     \item Cache is single-writer, lazily expired, never swept; a schema-drifted entry raises and is reported ``unavailable'' until TTL.
-    \item Synthesised answers are not cached, so repeated questions always pay the LLM call --- the reason $5\times$ is out of reach.
+    \item Synthesised answers are not cached: a demo pass with 15/15 source-cache hits was only 0.8\,s faster (48.3\,s $\to$ 47.5\,s).
+    \item Wikipedia matches titles by prefix; our keyword fallback is an English-stopword heuristic tuned on the 5 sample questions.
   \end{itemize}
 
   \vspace{0.4em}
@@ -332,7 +332,7 @@ $ docker run --env-file .env research-assistant \
   \begin{enumerate}\setlength\itemsep{0.3em}
     \item Log every retry and degraded source at \texttt{WARNING}; add \texttt{respx} tests for the real fetch path (429, 301, 403).
     \item Cache answers keyed by (question, source URLs, model id); atomic write-then-rename plus a sweeper for the file cache.
-    \item Run the live benchmark on an unproxied machine and a 20-question load test; add a \texttt{--json} CLI mode and OpenTelemetry spans.
+    \item Repeat the live benchmark for an error bar and run a 20-question load test; add a \texttt{--json} CLI mode and OpenTelemetry spans.
   \end{enumerate}
 \end{frame}
 

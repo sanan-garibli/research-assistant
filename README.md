@@ -108,9 +108,10 @@ python scripts/bench.py --limit 5
 
 | Workload | N | Sequential | Concurrent | Speedup |
 |---|---|---|---|---|
-| 5 sample research questions | 5 | *run `scripts/bench.py` with real API keys and paste the output here* | | |
+| 5 sample research questions (run 2, all sources healthy) | 5 | 46.8s | 11.7s | 4.0x |
+| 5 sample research questions (run 1, one arXiv 10 s timeout in the sequential phase) | 5 | 71.6s | 11.8s | 6.1x |
 
-`scripts/bench.py` runs the same N questions once with a plain `for` loop and once via `asyncio.gather`, both with `--no-cache` semantics so the numbers reflect real fetch/synthesis concurrency, not cache hits. This development environment has no outbound network access, so the table above is a placeholder — reproduce it locally once `.env` has real `LLM_*`/`TAVILY_API_KEY` values.
+`scripts/bench.py` runs the same N questions once with a plain `for` loop and once via `asyncio.gather`, both with `--no-cache` semantics so the numbers reflect real fetch/synthesis concurrency, not cache hits. Measured 2026-09-12 on a Windows 11 laptop with Python 3.14.3, `LLM_MODEL=claude-opus-5` and Tavily web search. Synthesis is ~91% of the sequential time, so the concurrent run is bounded by the slowest single question (~1–2 s of fetches plus ~10 s of LLM), not by the semaphore. Running `python -m researcher demo` twice gave 0/15 source-cache hits on the first pass and 15/15 on the second.
 
 **Expected bottleneck:** each `ask` call fans out 3 I/O-bound fetches (Wikipedia, arXiv, web search) concurrently via `asyncio.gather`, so a single call's wall time is bounded by the *slowest* of the three, not their sum — `researcher/concurrency/orchestrator.py` and `tests/test_orchestrator.py::test_sources_fetched_in_parallel_not_sequentially` demonstrate this at the unit level with staggered fake delays. Running multiple `ask` calls concurrently (as the benchmark does) additionally amortizes each call's fixed overhead (LLM synthesis latency, connection setup) across the batch; the `MAX_CONCURRENT_FETCHES` semaphore caps how much of that can happen in parallel before the LLM provider's own rate limits become the bottleneck.
 
@@ -120,9 +121,9 @@ python scripts/bench.py --limit 5
 pytest --cov=researcher --cov-report=term-missing
 ```
 
-- Total coverage on `researcher/`: **94%** (last measured locally; ≥60% required)
+- Total coverage on `researcher/`: **95%** (432 statements, 22 missed; ≥60% required)
 - Provided `tests/test_ai_smoke.py`: **16/16 passing, unmodified**
-- 64 tests total, all offline — no test touches the live network. `ai.*` calls are mocked via `unittest.mock`/`monkeypatch`; HTTP-layer tests can additionally use `respx`.
+- 83 tests total (67 own + 16 provided), all offline — no test touches the live network. `ai.*` calls are mocked via `unittest.mock`/`monkeypatch`; HTTP-layer tests can additionally use `respx`.
 - Concurrency is specifically exercised in `tests/test_orchestrator.py`: parallel fan-out timing, graceful degradation when one source raises, per-source timeout isolation, semaphore-bounded concurrency, and cache-hit short-circuiting.
 - `mypy researcher --ignore-missing-imports` was run once: **0 errors in `researcher/`**. (`mypy researcher` with no exclusion also follows imports into the provided `ai/providers/*` and reports 27 pre-existing type errors there — those files are unmodified per the assignment's contract.)
 
@@ -213,7 +214,7 @@ One shared `httpx.AsyncClient` is owned by the orchestrator for its whole lifeti
 - Only source lists are cached, not final synthesized answers — LLM output isn't deterministic per call, so answer-level caching was out of scope for this assignment's caching requirement.
 - Cache expiry is lazy (checked on read); there is no background sweeper removing stale files from `CACHE_DIR`.
 - No persistent database — the cache is filesystem JSON, which is sufficient at this scale but wouldn't scale to concurrent multi-process writers.
-- The benchmark table above needs to be regenerated with live API keys and network access; the number in this repo's history is a placeholder.
+- Wikipedia's search API matches article titles by prefix, so a full question returns nothing; `AIService.fetch_wikipedia` retries with shorter keyword phrases (`researcher/services/search_terms.py`). The stopword list is tuned on the sample questions, so an unusual question may still get no Wikipedia sources or only a broad article.
 
 ## Tools & acknowledgements
 
