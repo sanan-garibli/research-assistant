@@ -495,7 +495,7 @@ Base image \texttt{python:3.12-slim}, \textbf{single-stage}, Python 3.12 baked i
 All variables are read through \texttt{Settings} in \texttt{researcher/config.py}; the provided \texttt{ai.*} factories read the provider keys from \texttt{os.environ} directly, which is why \texttt{get\_settings()} calls \texttt{load\_dotenv()} first.
 
 \begin{center}\small
-\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\begin{tabularx}{\textwidth}{@{}>{\RaggedRight\arraybackslash}p{5.3cm} >{\RaggedRight\arraybackslash}p{2.0cm} X@{}}
 \toprule
 \textbf{Variable} & \textbf{Default} & \textbf{If missing / invalid} \\
 \midrule
@@ -542,7 +542,7 @@ No key is hard-coded; \texttt{.env} is git-ignored and Docker-ignored, and \text
 \end{deliverbox}
 
 \begin{center}\small
-\begin{tabularx}{\textwidth}{@{}l l X@{}}
+\begin{tabularx}{\textwidth}{@{}>{\RaggedRight\arraybackslash}p{3.9cm} >{\RaggedRight\arraybackslash}p{2.1cm} X@{}}
 \toprule
 \textbf{Module / file} & \textbf{Assistant} & \textbf{What we did with it} \\
 \midrule
