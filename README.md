@@ -160,25 +160,46 @@ pytest --cov=researcher --cov-report=term-missing
 
 ## Architecture
 
-```
-                     python -m researcher ask "..."
-                              |
-                              v
-                        researcher/cli.py
-                              |
-                              v
-                   researcher/core/researcher.py   (Researcher facade)
-                    |  validates question            |
-                    v                                 v
-   researcher/concurrency/orchestrator.py   researcher/services/ai_service.py
-   (asyncio.gather, per-source timeout,        (tenacity retries, timing/
-    semaphore, graceful degradation)             debug logging)
-                    |                                 |
-                    v                                 v
-         researcher/services/cache.py  <--->        ai/  (PROVIDED,
-         researcher/storage/cache_store.py            fetch_wikipedia/
-         (TTL cache: (source,query)->Source[])         fetch_arxiv/fetch_web/
-                                                        synthesize)
+```mermaid
+flowchart TD
+    CLI["python -m researcher ask &quot;...&quot;"]
+    ENTRY["researcher/cli.py"]
+    FACADE["researcher/core/researcher.py<br/><b>Researcher Facade</b><br/>• validates question"]
+
+    ORCH["researcher/concurrency/orchestrator.py<br/><b>Async Orchestrator</b><br/>• asyncio.gather<br/>• per-source timeout<br/>• semaphore<br/>• graceful degradation"]
+
+    AI["researcher/services/ai_service.py<br/><b>AI Service</b><br/>• Tenacity retries<br/>• timing / debug logging"]
+
+    CACHE["researcher/services/cache.py<br/><b>Cache Service</b><br/>TTL cache<br/>(source, query) → Source[]"]
+
+    STORE["researcher/storage/cache_store.py<br/><b>Cache Store</b>"]
+
+    AI_PKG["ai/<br/><b>AI / Research Providers</b><br/>• fetch_wikipedia<br/>• fetch_arxiv<br/>• fetch_web<br/>• synthesize"]
+
+    CLI --> ENTRY
+    ENTRY --> FACADE
+
+    FACADE --> ORCH
+    FACADE --> AI
+
+    ORCH --> CACHE
+    ORCH --> AI
+
+    CACHE <--> STORE
+
+    AI --> AI_PKG
+
+    classDef entry fill:#f5f5f5,stroke:#333,stroke-width:1.5px
+    classDef core fill:#e8f0fe,stroke:#4a73c0,stroke-width:2px
+    classDef service fill:#eef7ee,stroke:#4f8a4f,stroke-width:1.5px
+    classDef storage fill:#fff4df,stroke:#c98a20,stroke-width:1.5px
+    classDef external fill:#f3eafa,stroke:#8759a8,stroke-width:1.5px
+
+    class CLI,ENTRY entry
+    class FACADE core
+    class ORCH,AI,CACHE service
+    class STORE storage
+    class AI_PKG external
 ```
 
 One shared `httpx.AsyncClient` is owned by the orchestrator for its whole lifetime and passed into every `ai.*` fetch, so connections are pooled across questions, not just within one. It is built at composition time over a process-wide SSL context — constructing the trust store costs ~0.35s, which would otherwise be charged to every `ask` call — and released by `Researcher.aclose()` (or `async with researcher:`, which the CLI and benchmark use). Each source's cache check happens before the semaphore is acquired, so cache hits never contend with live fetches for the concurrency budget.
