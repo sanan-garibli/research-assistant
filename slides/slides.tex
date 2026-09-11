@@ -140,24 +140,28 @@
 
 % ========== SLIDE 3: ARCHITECTURE ====================================
 \begin{frame}{Architecture}
-  \textbf{Module map.} One file imports \texttt{ai.*}; one file touches the disk; zero files change to swap Anthropic for OpenAI.
+  \textbf{Module map.} One file imports \texttt{ai.*}; one file touches the disk; zero files change to swap Anthropic for OpenAI. {\footnotesize Solid = runtime call, dotted = construction.}
 
-  \vspace{0.2em}
+  \vspace{0.1em}
   \begin{center}
   \begin{tikzpicture}[
-    node distance=3mm and 5mm,
+    node distance=4mm and 5mm,
     box/.style={draw,rounded corners=2pt,minimum width=2.6cm,minimum height=0.7cm,align=center,font=\scriptsize},
     entry/.style={box,fill=ok!15,draw=ok,thick},
+    boot/.style={box,fill=black!4,draw=black!50,densely dashed},
     core/.style={box,fill=accent!14,draw=accent,thick},
     svc/.style={box,fill=accent!6,draw=accent},
     store/.style={box,fill=orange!14,draw=orange!70!black},
     aibox/.style={box,fill=violet!10,draw=violet!70!black,thick},
+    ext/.style={box,fill=black!4,draw=black!50,dashed},
     arrow/.style={-Stealth,thick},
-    lbl/.style={font=\tiny\itshape,text=black!60}
+    wire/.style={-Stealth,densely dotted,thick,black!55},
+    lbl/.style={font=\tiny\itshape,text=black!60,align=center}
   ]
     \node[entry] (cli) {\texttt{cli.py} (\texttt{ask}/\texttt{demo})};
     \node[entry,right=of cli] (bench) {\texttt{scripts/bench.py}};
-    \node[svc,right=of bench] (boot) {\texttt{bootstrap.py} + \texttt{config.py}};
+    \node[boot,right=of bench] (boot) {\texttt{bootstrap.py}\\composition root};
+    \node[boot,right=of boot,minimum width=2.2cm] (cfg) {\texttt{config.py}\\\texttt{Settings}};
 
     \node[core,below=of cli] (fac) {\texttt{core/researcher.py}\\Researcher facade + validation};
     \node[core,right=of fac,minimum width=3.6cm] (orch) {\texttt{concurrency/orchestrator.py}\\gather $\cdot$ timeout $\cdot$ Semaphore(5)\\one shared \texttt{AsyncClient}};
@@ -167,19 +171,28 @@
     \node[store,below=of cache] (cs) {\texttt{storage/cache\_store.py}\\\texttt{CacheBackend} ABC $\to$ FS JSON};
 
     \node[aibox,below=of ais,minimum width=5cm] (ai) {\textbf{provided \texttt{ai/}} (unmodified)\\\texttt{fetch\_wikipedia} $\cdot$ \texttt{fetch\_arxiv} $\cdot$ \texttt{fetch\_web} $\cdot$ \texttt{synthesize}};
+    \node[ext,right=of ai] (net) {Wikipedia $\cdot$ arXiv\\Tavily $\cdot$ LLM};
 
-    \draw[arrow] (cli) -- (fac);
-    \draw[arrow] (bench.south) |- ++(-0.3,-0.15) |- (fac.east);
-    \draw[arrow] (fac) -- (orch);
-    \draw[arrow] (orch) -- (cache);
-    \draw[arrow] (cache) -- (cs);
-    \draw[arrow] (orch) -- (ais);
-    \draw[arrow] (fac.south) |- node[lbl,below,pos=0.75] {synthesize via \texttt{to\_thread}} (ais.west);
+    % construction (dotted)
+    \draw[wire] (cli.north) -- ++(0,2.5mm) -| node[lbl,above,pos=0.25] {\texttt{build\_researcher()}} (boot.north);
+    \draw[wire] (bench.north) -- ++(0,2.5mm);
+    \draw[arrow] (boot) -- node[lbl,above] {reads} (cfg);
+
+    % runtime calls (solid)
+    \draw[arrow] (cli) -- node[lbl,left] {\texttt{ask()}} (fac);
+    \draw[arrow] (bench.south) -- ++(0,-2mm) -| (fac.north east);
+    \draw[arrow] (fac) -- node[lbl,above] {\texttt{gather\_sources()}} (orch);
+    \draw[arrow] (orch) -- node[lbl,above] {\texttt{get()} / \texttt{set()}} (cache);
+    \draw[arrow] (cache) -- node[lbl,right] {read / write / delete} (cs);
+    \draw[arrow] (orch) -- node[lbl,right] {\texttt{fetch\_*} (shared client)} (ais);
+    \draw[arrow] (fac.south) |- node[lbl,below,pos=0.75] {\texttt{synthesize()} via \texttt{to\_thread}} (ais.west);
     \draw[arrow] (ais) -- node[lbl,right] {AI-module boundary} (ai);
+    \draw[arrow,dashed] (ai) -- (net);
 
     \begin{scope}[on background layer]
-      \node[fit=(fac)(orch)(cache)(ais)(cs),draw=accent!40,dashed,rounded corners=3pt,inner sep=4pt,label={[lbl,anchor=south east]north east:\texttt{researcher/} -- our SE layer}] {};
+      \node[fit=(fac)(orch)(cache)(ais)(cs),draw=accent!40,dashed,rounded corners=3pt,inner sep=4pt,label={[lbl,anchor=south east]north east:\texttt{researcher/} -- our SE layer}] (se) {};
     \end{scope}
+    \draw[wire] (boot.south) -- node[lbl,right] {wires} (boot.south |- se.north);
   \end{tikzpicture}
   \end{center}
 \end{frame}

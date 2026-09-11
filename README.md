@@ -160,6 +160,8 @@ pytest --cov=researcher --cov-report=term-missing
 
 ## Architecture
 
+The CLI hands a validated question to a facade, which delegates to an async orchestrator that fans out to Wikipedia, arXiv, and web search concurrently via `asyncio.gather`. A thin service layer wraps the provided `ai/` package with retries and timing, and a TTL cache sits in front of each source. Exactly one module crosses into `ai/`, and exactly one crosses the storage boundary.
+
 ```mermaid
 flowchart TD
     CLI["python -m researcher ask &quot;...&quot;"]
@@ -185,7 +187,7 @@ flowchart TD
     ORCH --> CACHE
     ORCH --> AI
 
-    CACHE <--> STORE
+    CACHE --> STORE
 
     AI --> AI_PKG
 
@@ -201,6 +203,8 @@ flowchart TD
     class STORE storage
     class AI_PKG external
 ```
+
+**Boundaries.** Exactly one arrow crosses into the provided `ai/` package (`ai_service.py → ai/`), and exactly one crosses the storage boundary (`cache.py → cache_store.py`); the orchestrator never touches a file. `models.py` (`SourceOutcome`, `ResearchSession`) is the typed payload that travels along every arrow inside `researcher/` — no naked dictionaries cross a module boundary. Swapping the LLM provider changes zero files here: it is `LLM_PROVIDER=...` plus a key, dispatched inside the provided `ai.providers.factory`.
 
 One shared `httpx.AsyncClient` is owned by the orchestrator for its whole lifetime and passed into every `ai.*` fetch, so connections are pooled across questions, not just within one. It is built at composition time over a process-wide SSL context — constructing the trust store costs ~0.35s, which would otherwise be charged to every `ask` call — and released by `Researcher.aclose()` (or `async with researcher:`, which the CLI and benchmark use). Each source's cache check happens before the semaphore is acquired, so cache hits never contend with live fetches for the concurrency budget.
 

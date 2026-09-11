@@ -197,53 +197,61 @@ Defence against malformed model responses is layered. The provided synthesiser a
 
 \begin{center}
 \begin{tikzpicture}[
-  node distance=5mm and 8mm,
-  box/.style={draw,rounded corners=2pt,minimum width=3.3cm,minimum height=0.85cm,align=center,font=\small},
+  node distance=7mm and 6mm,
+  box/.style={draw,rounded corners=2pt,minimum width=3.4cm,minimum height=0.85cm,align=center,font=\small},
   entry/.style={box,fill=ok!12,draw=ok,thick},
+  boot/.style={box,fill=black!4,draw=black!50,densely dashed},
   core/.style={box,fill=accent!12,draw=accent,thick},
   svc/.style={box,fill=accent!6,draw=accent},
   store/.style={box,fill=orange!12,draw=orange!70!black},
   aibox/.style={box,fill=violet!10,draw=violet!70!black,thick},
   ext/.style={box,fill=black!4,draw=black!50,dashed},
   arrow/.style={-Stealth,thick},
-  lbl/.style={font=\scriptsize\itshape,text=black!60}
+  wire/.style={-Stealth,densely dotted,thick,black!55},
+  lbl/.style={font=\scriptsize\itshape,text=black!60,align=center}
 ]
+  % --- entry points and composition root -------------------------------
   \node[entry] (cli) {\texttt{cli.py}\\\texttt{ask} / \texttt{demo}};
-  \node[entry,right=of cli] (bench) {\texttt{scripts/bench.py}};
-  \node[svc,right=of bench,minimum width=2.9cm] (boot) {\texttt{bootstrap.py}\\composition root};
+  \node[entry,right=of cli] (bench) {\texttt{scripts/bench.py}\\sequential vs \texttt{gather}};
+  \node[boot,right=of bench] (boot) {\texttt{bootstrap.py}\\composition root};
+  \node[boot,right=of boot,minimum width=2.6cm] (cfg) {\texttt{config.py}\\\texttt{Settings} from \texttt{.env}};
 
-  \node[core,below=of cli] (fac) {\texttt{core/researcher.py}\\Researcher facade};
-  \node[svc,right=of fac] (val) {\texttt{core/validation.py}\\\texttt{core/errors.py}};
-  \node[svc,right=of val,minimum width=2.9cm] (cfg) {\texttt{config.py}\\pydantic-settings};
-
-  \node[core,below=of fac] (orch) {\texttt{concurrency/orchestrator.py}\\gather $\cdot$ timeout $\cdot$ semaphore\\shared \texttt{AsyncClient}};
+  % --- SE layer --------------------------------------------------------
+  \node[core,below=of cli] (fac) {\texttt{core/researcher.py}\\Researcher facade\\{\scriptsize validate $\cdot$ NoSourcesAvailableError $\cdot$ degradation note}};
+  \node[core,right=of fac] (orch) {\texttt{concurrency/orchestrator.py}\\gather $\cdot$ timeout $\cdot$ Semaphore(5)\\owns the shared \texttt{AsyncClient}};
   \node[svc,right=of orch] (cache) {\texttt{services/cache.py}\\\texttt{SourceCache} (TTL)};
-  \node[store,right=of cache,minimum width=2.9cm] (cs) {\texttt{storage/cache\_store.py}\\\texttt{CacheBackend} ABC\\FS JSON / in-memory};
 
   \node[svc,below=of orch] (ais) {\texttt{services/ai\_service.py}\\tenacity retries $\cdot$ timing logs\\\emph{only module importing} \texttt{ai.*}};
+  \node[store,below=of cache] (cs) {\texttt{storage/cache\_store.py}\\\texttt{CacheBackend} ABC\\FS JSON / in-memory};
 
+  % --- provided package and the outside world --------------------------
   \node[aibox,below=of ais] (ai) {\textbf{provided \texttt{ai/}} (unmodified)\\\texttt{fetch\_wikipedia} $\cdot$ \texttt{fetch\_arxiv} $\cdot$ \texttt{fetch\_web} $\cdot$ \texttt{synthesize}};
-  \node[ext,right=of ai,minimum width=2.9cm] (net) {Wikipedia $\cdot$ arXiv\\Tavily $\cdot$ Anthropic};
+  \node[ext,right=of ai] (net) {Wikipedia $\cdot$ arXiv\\Tavily $\cdot$ LLM provider};
 
-  \draw[arrow] (cli) -- (fac);
-  \draw[arrow] (bench.south) -- ++(0,-2mm) -| (fac.north east);
-  \draw[arrow] (boot.south) -- ++(0,-2mm) -| (cfg.north);
-  \draw[arrow] (fac) -- (val);
-  \draw[arrow] (fac) -- (orch);
-  \draw[arrow] (fac.south east) -- node[lbl,right,pos=0.6] {synthesize via \texttt{to\_thread}} (ais.north east);
-  \draw[arrow] (orch) -- (cache);
-  \draw[arrow] (cache) -- (cs);
-  \draw[arrow] (orch) -- (ais);
+  % --- construction (dotted) -------------------------------------------
+  \draw[wire] (cli.north) -- ++(0,3mm) -| node[lbl,above,pos=0.25] {\texttt{build\_researcher()}} (boot.north);
+  \draw[wire] (bench.north) -- ++(0,3mm);
+  \draw[arrow] (boot) -- node[lbl,above] {reads} (cfg);
+
+  % --- runtime calls (solid) -------------------------------------------
+  \draw[arrow] (cli) -- node[lbl,left] {\texttt{ask()}} (fac);
+  \draw[arrow] (bench.south) -- ++(0,-2.5mm) -| node[lbl,above,pos=0.25] {\texttt{ask()}} (fac.north east);
+  \draw[arrow] (fac) -- node[lbl,above] {\texttt{gather\_sources()}} (orch);
+  \draw[arrow] (fac.south) |- node[lbl,below,pos=0.75] {\texttt{synthesize()} via \texttt{to\_thread}} (ais.west);
+  \draw[arrow] (orch) -- node[lbl,above] {\texttt{get()} before semaphore\\\texttt{set()} after fetch} (cache);
+  \draw[arrow] (orch) -- node[lbl,right] {\texttt{fetch\_*} (shared client)} (ais);
+  \draw[arrow] (cache) -- node[lbl,right] {read / write / delete} (cs);
   \draw[arrow] (ais) -- node[lbl,right] {AI-module boundary} (ai);
   \draw[arrow,dashed] (ai) -- (net);
 
   \begin{scope}[on background layer]
-    \node[fit=(fac)(val)(cfg)(orch)(cache)(cs)(ais),draw=accent!40,dashed,rounded corners=4pt,inner sep=5pt,label={[lbl,anchor=south east]north east:\texttt{researcher/} -- our SE layer}] {};
+    \node[fit=(fac)(orch)(cache)(ais)(cs),draw=accent!40,dashed,rounded corners=4pt,inner sep=6pt,label={[lbl,anchor=south east]north east:\texttt{researcher/} -- our SE layer}] (se) {};
   \end{scope}
+  \draw[wire] (boot.south) -- node[lbl,right] {wires all five objects} (boot.south |- se.north);
 \end{tikzpicture}
 \end{center}
 
-\textbf{Interpreting the diagram.} Exactly one arrow crosses the AI-module boundary: \texttt{ai\_service.py} $\to$ \texttt{ai/}. The storage boundary is crossed only by \texttt{services/cache.py} $\to$ \texttt{storage/cache\_store.py}; the orchestrator never touches a file. Swapping Anthropic for OpenAI changes \emph{zero} files: it is \texttt{LLM\_PROVIDER=openai} plus a key, because the provided \texttt{ai.providers.factory} does the dispatch. Swapping the whole \texttt{ai/} package for a different one would change one file.
+\textbf{Interpreting the diagram.} Solid arrows are runtime calls; dotted arrows are construction. Both entry points call \texttt{bootstrap.build\_researcher()}, which reads \texttt{config.py} and wires backend $\to$ cache $\to$ AI service $\to$ orchestrator $\to$ facade; neither entry point constructs a domain object itself. Exactly one arrow crosses the AI-module boundary: \texttt{ai\_service.py} $\to$ \texttt{ai/}. The storage boundary is crossed only by \texttt{services/cache.py} $\to$ \texttt{storage/cache\_store.py}, in one direction; the orchestrator never touches a file. \texttt{models.py} (\texttt{SourceOutcome}, \texttt{ResearchSession}) is the typed payload carried along every arrow inside \texttt{researcher/}. Swapping Anthropic for OpenAI changes \emph{zero} files: it is \texttt{LLM\_PROVIDER=openai} plus a key, because the provided \texttt{ai.providers.factory} does the dispatch. Swapping the whole \texttt{ai/} package for a different one would change one file.
 
 \textbf{Module-by-module summary.}
 \begin{itemize}[leftmargin=1.4em,itemsep=1pt]
