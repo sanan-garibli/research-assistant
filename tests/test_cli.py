@@ -109,6 +109,48 @@ def test_ask_empty_question_returns_error_exit_code(monkeypatch, capsys):
     assert "Error" in capsys.readouterr().err
 
 
+def _session_with_subscript() -> ResearchSession:
+    src = Source(title="Photosynthesis", url="https://example.com/p", snippet="s", origin="wikipedia")
+    answer = AnswerWithCitations(
+        question="What is photosynthesis?",
+        answer="Plants convert CO₂ into sugars [1].",
+        citations=[Citation(index=1, source=src)],
+    )
+    outcomes = [SourceOutcome(origin="wikipedia", source_count=1, elapsed_seconds=0.1)]
+    return ResearchSession(question="What is photosynthesis?", answer=answer, outcomes=outcomes)
+
+
+def test_ask_prints_non_latin1_characters_to_a_redirected_stream(monkeypatch):
+    """Redirecting stdout on Windows gives a cp1252 stream, which cannot encode
+    CO2's subscript; the CLI must not die with a UnicodeEncodeError."""
+    import io
+
+    fake = FakeResearcher(session=_session_with_subscript())
+    monkeypatch.setattr(cli_module, "build_researcher", lambda settings: fake)
+    raw = io.BytesIO()
+    monkeypatch.setattr(cli_module.sys, "stdout", io.TextIOWrapper(raw, encoding="cp1252"))
+
+    exit_code = cli_module.main(["ask", "What is photosynthesis?"])
+
+    cli_module.sys.stdout.flush()
+    assert exit_code == 0
+    assert "CO₂" in raw.getvalue().decode("utf-8")
+
+
+def test_streams_that_cannot_be_reconfigured_are_left_alone(monkeypatch):
+    import io
+
+    fake = FakeResearcher()
+    monkeypatch.setattr(cli_module, "build_researcher", lambda settings: fake)
+    plain = io.StringIO()  # no reconfigure(), like pytest's captured stdout
+    monkeypatch.setattr(cli_module.sys, "stdout", plain)
+
+    exit_code = cli_module.main(["ask", "What is CRISPR?"])
+
+    assert exit_code == 0
+    assert "CRISPR edits genes" in plain.getvalue()
+
+
 def test_demo_runs_limited_number_of_questions(monkeypatch, capsys):
     fake = FakeResearcher()
     monkeypatch.setattr(cli_module, "build_researcher", lambda settings: fake)

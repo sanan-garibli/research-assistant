@@ -18,6 +18,26 @@ from researcher.models import ResearchSession
 _DATA_DIR = Path(__file__).resolve().parent.parent / "data"
 
 
+def _use_utf8_stdio() -> None:
+    """Make stdout/stderr able to carry any answer text.
+
+    Answers are arbitrary text from upstream sources: a chemistry question
+    comes back with "CO2" written using a subscript. When output is redirected
+    on Windows, Python encodes it with the legacy code page (cp1252), which
+    cannot represent that character, and `print` raises UnicodeEncodeError
+    mid-answer. Streams that cannot be reconfigured (pytest's captured stdout,
+    a plain StringIO) are left alone.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="backslashreplace")
+        except (ValueError, OSError):  # pragma: no cover - detached/odd stream
+            pass
+
+
 def format_answer(session: ResearchSession) -> str:
     """Pure rendering of a ResearchSession into human-readable text."""
     lines = [f"Q: {session.question}", "", f"A: {session.answer.answer}", ""]
@@ -78,6 +98,7 @@ async def _dispatch(args: argparse.Namespace, researcher) -> int:
 
 
 def main(argv: list[str] | None = None) -> int:
+    _use_utf8_stdio()
     parser = build_parser()
     args = parser.parse_args(argv)
 

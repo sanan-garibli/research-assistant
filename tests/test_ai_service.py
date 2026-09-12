@@ -59,6 +59,66 @@ async def test_fetch_wikipedia_does_not_retry_on_value_error(monkeypatch, settin
 
 
 @pytest.mark.asyncio
+async def test_fetch_wikipedia_falls_back_to_shorter_query_until_match(
+    monkeypatch, settings_factory, sample_sources
+):
+    queried: list[str] = []
+
+    async def title_search(query, *, max_results=3, client=None):
+        queried.append(query)
+        return sample_sources if query == "photosynthesis" else []
+
+    monkeypatch.setattr(ai_service_module.ai_sources, "fetch_wikipedia", title_search)
+    service = AIService(settings_factory())
+
+    result = await service.fetch_wikipedia(
+        "What is photosynthesis and what are its main stages?", max_results=3
+    )
+
+    assert result == sample_sources
+    assert queried == ["photosynthesis stages", "photosynthesis"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_wikipedia_returns_empty_when_no_candidate_matches(monkeypatch, settings_factory):
+    queried: list[str] = []
+
+    async def no_titles(query, *, max_results=3, client=None):
+        queried.append(query)
+        return []
+
+    monkeypatch.setattr(ai_service_module.ai_sources, "fetch_wikipedia", no_titles)
+    service = AIService(settings_factory())
+
+    result = await service.fetch_wikipedia(
+        "What is photosynthesis and what are its main stages?", max_results=3
+    )
+
+    assert result == []
+    assert queried == ["photosynthesis stages", "photosynthesis", "stages"]
+
+
+@pytest.mark.asyncio
+async def test_fetch_wikipedia_provider_error_propagates_without_trying_next_candidate(
+    monkeypatch, settings_factory
+):
+    queried: list[str] = []
+
+    async def down(query, *, max_results=3, client=None):
+        queried.append(query)
+        raise ProviderError("Wikipedia search failed")
+
+    monkeypatch.setattr(ai_service_module.ai_sources, "fetch_wikipedia", down)
+    service = AIService(settings_factory(retry_max_attempts=1))
+
+    with pytest.raises(ProviderError):
+        await service.fetch_wikipedia(
+            "What is photosynthesis and what are its main stages?", max_results=3
+        )
+    assert queried == ["photosynthesis stages"]
+
+
+@pytest.mark.asyncio
 async def test_fetch_logs_never_include_api_key(monkeypatch, settings_factory, sample_sources, caplog):
     async def fake(query, *, max_results=3, client=None):
         return sample_sources

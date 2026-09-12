@@ -19,6 +19,7 @@ from ai.providers.base import ProviderError
 from ai.schemas import AnswerWithCitations, Source
 from ai.sources import WebSearchProvider
 from researcher.config import Settings
+from researcher.services.search_terms import wikipedia_search_candidates
 
 logger = logging.getLogger(__name__)
 
@@ -54,9 +55,25 @@ class AIService:
     async def fetch_wikipedia(
         self, query: str, *, max_results: int, client: Any = None
     ) -> list[Source]:
-        return await self._retrying_fetch(
-            "wikipedia", ai_sources.fetch_wikipedia, query, max_results, client
-        )
+        """Title-search Wikipedia with progressively shorter keyword phrases.
+
+        `ai.sources.fetch_wikipedia` matches titles by prefix, so the full
+        question rarely matches; see `search_terms`. Returns the first
+        non-empty result. Errors are not swallowed: a failing term propagates
+        rather than moving on to the next one.
+        """
+        candidates = wikipedia_search_candidates(query)
+        for attempt, term in enumerate(candidates, start=1):
+            sources = await self._retrying_fetch(
+                "wikipedia", ai_sources.fetch_wikipedia, term, max_results, client
+            )
+            if sources:
+                logger.info(
+                    "wikipedia match question=%r term=%r attempt=%d/%d",
+                    query, term, attempt, len(candidates),
+                )
+                return sources
+        return []
 
     async def fetch_arxiv(
         self, query: str, *, max_results: int, client: Any = None
